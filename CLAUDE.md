@@ -296,16 +296,17 @@ sentinel-forge/
 │   │   └── realtime_tab.py    ← 탭 3: 개별 작업 버튼 (STAGE 3 룰 수동)
 │   └── widgets/               ← 공통 위젯 (md 에디터·로그 패널 등)
 │
-├── reference/
-│   ├── official_pdfs/         ← 한컴 공식 PDF 4종 + 추출 txt
-│   ├── hwp_api.sqlite         ← MariaDB hwp_api_db에서 export된 사본 (F5)
-│   ├── tool1/                 ← FSS IT트렌드 #7 (Python+Tkinter, hwp_auto.py)
-│   ├── tool2/                 ← 금감원 오피스 프로그램 (분석 자료)
-│   │   ├── 분석노트.txt        ← tool2 완전 분해 분석 (★ 1차 참조)
-│   │   ├── 보고서1_spec.md     ← 금감원페이지 정확 spec
-│   │   └── _unpacked/         ← 디컴파일 산출물 (일부만 commit)
-│   │       └── 한컴라이브러리_decompiled.py  (411 메서드, 16,656줄)
-│   └── _tools/                ← gitignore — pycdc 빌드 클론, 사용자 로컬에서 재구성
+├── reference/                  ← ★ 전체 gitignore (개발자 로컬 전용)
+│   │                            FSS 자산·외부 도구·분해 자료 등 본 프로젝트 운영에는
+│   │                            불필요. 운영에 필요한 사양은 spec/ 또는 코드 주석으로 흡수.
+│   ├── official_pdfs/          한컴 공식 PDF 4종 + 추출 txt
+│   ├── hwp_api.sqlite          MariaDB hwp_api_db export 사본 (F5)
+│   ├── tool1/                  FSS IT트렌드 #7 (Python+Tkinter, hwp_auto.py)
+│   ├── tool2/                  금감원 오피스 프로그램 분석 자료
+│   │   ├── 분석노트.txt         tool2 완전 분해 분석 (개발 시 1차 참조)
+│   │   ├── 보고서1_spec.md      금감원페이지 정확 spec
+│   │   └── _unpacked/          디컴파일 산출물 (한컴라이브러리_decompiled.py 등)
+│   └── _tools/                 pycdc 빌드 클론 (분석노트 §12.2 패치 적용)
 │
 ├── dev-support/
 │   ├── hwp-api-mcp/           ← HWP COM API 카탈로그 MCP (개발 시점 전용)
@@ -475,10 +476,10 @@ sentinel-forge/
 | 파일 | 상태 | 내용 |
 |---|---|---|
 | TASK_LOG.md | **작성완료** | 전역 작업 이력 |
-| [spec/markdown-spec.md](spec/markdown-spec.md) | **확정 (v1.1)** | md 입력 사양 (계약). 6종 의미(메타데이터·층위·요약단어·주석·강조·결론 화살표). **`c:/projects/sentinel/docs/markdown-spec.md`와 동기 유지 필수** |
+| [spec/markdown-spec.md](spec/markdown-spec.md) | **확정 (v1.3)** | md 입력 사양 (계약). 7종 의미(메타데이터·층위·요약단어·주석·강조·결론 화살표·callout). **`c:/projects/sentinel/docs/markdown-spec.md`와 동기 유지 필수** |
 | spec/editing-rules.md | 미작성 (예정) | HWP 편집 규칙 정형화. tool2 분석노트 §12.5 + tool2-spec-mcp 데이터를 토대로 작성 |
-| [reference/tool2/분석노트.txt](reference/tool2/분석노트.txt) | **확정** | tool2 완전 분해 분석. §12에 최종 결론. spec authority 데이터 포함 |
-| reference/README.md | 미작성 | 레퍼런스(SQLite·PDF·tool2) 사용법 |
+| reference/tool2/분석노트.txt | **확정 (gitignore — 개발자 로컬)** | tool2 완전 분해 분석 §12. spec authority 1차 참조. 운영 필요 사양은 spec/ 또는 코드 주석으로 흡수 |
+| reference/README.md | 작성 안 함 (gitignore) | 레퍼런스 자료는 개발자 로컬 |
 | [dev-support/hwp-api-mcp/](dev-support/hwp-api-mcp/) | 운영 중 | HWP COM API 카탈로그 MCP (Sentinel에서 이관) |
 | [dev-support/tool2-spec-mcp/](dev-support/tool2-spec-mcp/) | 운영 중 (2026-04-26) | tool2 spec MCP. 7 도구 노출 |
 
