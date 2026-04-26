@@ -11,6 +11,7 @@ tool2의 `한컴라이브러리.기본한컴` 411 메서드 중 본 프로젝트
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from ..com_helpers import set_param
@@ -18,6 +19,10 @@ from ..com_helpers import set_param
 Align = Literal["left", "center", "right", "justify"]
 BorderType = Literal[0, 1, 3]   # 0=없음, 1=실선, 3=점선
 BorderSide = Literal["상", "하", "좌", "우"]
+
+# 인라인 Bold 토큰 — `__X__` (markdown-spec v1.4)
+# 비탐욕 매칭 — `__a__b__` 의 경우 `a` 만 bold, `b` 는 plain
+_BOLD_TOKEN_RE = re.compile(r"__(.+?)__")
 
 
 # ============================================================================
@@ -69,8 +74,28 @@ def insert_fixed_space(hwp: Any, count: int = 1) -> None:
 # ============================================================================
 
 def insert_text(hwp: Any, text: str) -> None:
-    """현재 위치에 텍스트 삽입 (tool2 '문장' 등가)."""
-    set_param(hwp, "InsertText", {"Text": text})
+    """
+    현재 위치에 텍스트 삽입 (tool2 '문장' 등가).
+
+    인라인 `__X__` Bold 토큰 자동 처리. 토큰 사이 plain 텍스트와 bold
+    텍스트를 번갈아 삽입하면서 매 bold 구간 전후로 CharShapeBold 토글.
+
+    spec/markdown-spec.md v1.4: `__X__` 가 강조 표기. 이탤릭 미사용,
+    asterisk 는 참조 전용. 비탐욕 매칭이라 중첩 `__a__b__` 는 `a` 만 bold.
+    """
+    if not text:
+        return
+    # split 결과: parts[0,2,4,...] = plain, parts[1,3,5,...] = bold
+    parts = _BOLD_TOKEN_RE.split(text)
+    for i, part in enumerate(parts):
+        if not part:
+            continue
+        if i % 2 == 0:
+            set_param(hwp, "InsertText", {"Text": part})
+        else:
+            hwp.HAction.Run("CharShapeBold")
+            set_param(hwp, "InsertText", {"Text": part})
+            hwp.HAction.Run("CharShapeBold")
 
 
 # ============================================================================
