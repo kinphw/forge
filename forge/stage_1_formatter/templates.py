@@ -132,11 +132,17 @@ class ReportSpec:
 
     # 참고 callout
     note_header_font: str = "HY헤드라인M"
-    note_header_size_pt: float = 15.0
-    note_header_bg_rgb: tuple[int, int, int] = (0, 0, 255)         # 진파랑
+    note_header_size_pt: float = 16.0       # tool2 자료탭 def 참고 (line 2972) = 16
+    note_header_bg_rgb: tuple[int, int, int] = (35, 35, 106)       # 진남색 (tool2 와 동일)
     note_header_text_rgb: tuple[int, int, int] = (255, 255, 255)   # 흰색
-    note_header_width_mm: float = 17.6
-    note_box_height_mm: float = 8.7
+    note_header_width_mm: float = 18.0      # tool2 = 18mm
+    note_box_height_mm: float = 10.0        # tool2 = 10mm
+    note_body_size_pt: float = 20.0         # tool2 본문 셀 = 문장풀(... 20 ...)
+    # 붙임용 — NoteCallout 의 기존(개선 전) 형식. [붙임 N] 라벨 + 본문.
+    attach_header_bg_rgb: tuple[int, int, int] = (0, 0, 255)       # 진파랑 (이전 참고 색)
+    attach_header_size_pt: float = 15.0
+    attach_header_width_mm: float = 22.0    # "붙임 N" 글자 더 길어 폭 확장
+    attach_body_size_pt: float = 13.0
 
     def clone(self, **overrides) -> "ReportSpec":
         """일부 필드만 바꾼 사본 반환 (사용자 테일러링용)."""

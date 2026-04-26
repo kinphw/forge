@@ -1,9 +1,19 @@
 """
-NoteCalloutRenderer — [참고] 박스.
+NoteCalloutRenderer — [참고] 점선 박스.
 
-tool2 매핑: `금감원페이지참고` (한컴라이브러리.py:14420-14446)
-3 셀 표 (참고 헤더 셀 + 1mm 분리 + 본문 셀).
-헤더 셀: 진파랑 배경 + 흰 글씨 'HY헤드라인M 15pt Bold'.
+tool2 매핑: `def 금감업무정보점선박스` (한컴라이브러리.py:15755-15776)
+자료 탭의 "업무정보 옆 ※(참고)" 버튼 형식.
+
+구조:
+  - 1×1 표, 가로 = 198 - 좌우여백, 세로 12mm
+  - 점선 테두리 (BorderType=3) + 굵기 2
+  - 배경색 없음 (투명)
+  - 폰트: 맑은 고딕 13pt
+  - 본문 한 줄:
+      "※ "      (plain)
+      "(참고)"  (Bold)
+      " 본문"   (plain)
+  - 우정렬 (ParagraphShapeAlignRight)
 """
 from __future__ import annotations
 
@@ -12,57 +22,48 @@ from .base import ElementRenderer
 
 
 class NoteCalloutRenderer(ElementRenderer):
-    """[참고] 박스 — 진파랑 헤더 + 본문 셀."""
+    """[참고] 점선 박스 — tool2 금감업무정보점선박스 형식."""
 
     def render(self, lines: list[str]) -> None:
         """
-        lines: [참고] 다음에 오는 본문 줄들. 비어있는 줄은 caller 가 미리 제거.
+        lines: [참고] 다음에 오는 본문 줄들. 첫 줄이 박스 안 한 줄에 들어가고,
+               추가 줄이 있으면 BreakPara 후 같은 셀 안에 누적.
         """
         s = self.spec
         hwp = self.hwp
 
-        # 줄 시작 아니면 break + 위 빈 줄
+        # 위치 정리 — 줄 시작 아니면 break
         if not p.is_at_line_start(hwp):
             p.break_para(hwp)
-        p.set_font(hwp, s.note_header_font, 8.0, bold=False)
+        # 위 6pt 빈 줄 (tool2: 글자크기(6) + BreakPara)
+        p.set_font(hwp, "맑은 고딕", 6.0, bold=False)
         p.break_para(hwp)
+        p.align(hwp, "right")  # tool2: ParagraphShapeAlignRight
+
+        # 1×1 점선 표
+        usable_width = 198 - (s.margins.left + s.margins.right)
+        p.make_table(hwp, [usable_width], [12.0])
+
+        # 점선 테두리 (BorderType=3) 모든 면 + 굵기 2
+        p.set_table_border_type(hwp, 3, 3, 3, 3)
+        p.set_table_border_thickness(hwp, 2, 2, 2, 2)
+
+        # 본문 — 맑은 고딕 13pt
+        p.set_font(hwp, "맑은 고딕", 13.0, bold=False)
+        p.set_text_color(hwp, 0, 0, 0)
         p.align(hwp, "justify")
 
-        # 3 셀 표 [헤더폭 17.6, 1mm 분리, 본문폭]
-        # tool2 `182 - 문단여백측정()` — 문단여백측정 = 좌·우 여백 합 (mm).
-        usable_width = 182 - (s.margins.left + s.margins.right)
-        p.make_table(hwp, [
-            s.note_header_width_mm, 1.0, usable_width,
-        ], [s.note_box_height_mm])
-
-        # 헤더 셀: 셀 여백 0, 진파랑 배경, 흰 글씨, 가운데 정렬, '참고'
-        p.set_cell_margin_zero(hwp)
-        p.set_table_bg(hwp, *s.note_header_bg_rgb)
+        # "※ " (plain) + "(참고)" (Bold) + " 본문" (plain)
+        p.insert_text(hwp, "※ ")
         p.char_bold_on(hwp)
-        p.set_font(hwp, s.note_header_font, s.note_header_size_pt, bold=True)
-        p.set_text_color(hwp, *s.note_header_text_rgb)
-        p.align(hwp, "center")
-        p.insert_text(hwp, "참고")
+        p.insert_text(hwp, "(참고)")
+        p.char_bold_on(hwp)  # toggle off
 
-        # → 가운데 1mm 분리 셀 (좌·우만 실선)
-        p.move_table_right(hwp, 1)
-        p.set_table_border_type(hwp, top=0, bottom=0, left=1, right=1)
-
-        # → 본문 셀
-        p.move_table_right(hwp, 1)
-        p.char_normal(hwp)
-        p.set_text_color(hwp, 0, 0, 0)  # 검정으로 복귀
-        p.set_font(hwp, s.note_header_font, s.note_header_size_pt, bold=False)
-        p.align(hwp, "justify")
-        p.insert_fixed_space(hwp, 2)
-
-        # 첫 줄
         if lines:
-            p.insert_text(hwp, lines[0])
-            # 추가 줄 — BreakPara 후 들여쓰기 + 텍스트
+            # 첫 줄 — 앞 공백 1 + 본문
+            p.insert_text(hwp, " " + lines[0])
             for extra in lines[1:]:
                 p.break_para(hwp)
-                p.insert_fixed_space(hwp, 2)
                 p.insert_text(hwp, extra)
 
         # 표 탈출
