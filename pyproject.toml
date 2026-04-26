@@ -17,6 +17,8 @@ dependencies = [
     "pyyaml>=6.0",
     # HWP COM — STAGE 3 + 활성 프로세스 attach
     "pywin32>=306; sys_platform == 'win32'",
+    # 한/글 프로세스 감지 (attach 정책)
+    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]

@@ -21,7 +21,7 @@ import ttkbootstrap as tb
 from ttkbootstrap.constants import LEFT, RIGHT, BOTH, X, Y, W, E, N, S
 
 from forge import __version__
-from forge.hwp_session import HwpSession, attach_or_create
+from forge.hwp_session import HwpSession, attach_or_create, init_com_for_thread, is_alive
 from forge.stage_1_formatter.templates import REPORT1_SPEC, ReportSpec
 
 from .tabs.settings_tab import SettingsTab
@@ -112,34 +112,63 @@ class ForgeApp:
     # ------------------------------------------------------------ 한/글
     def ensure_hwp(self) -> HwpSession:
         """
-        한/글 COM 인스턴스 보장. 이미 연결돼 있으면 그대로 반환,
-        없으면 attach (한/글 자동 spawn).
+        한/글 COM 인스턴스 보장. 살아있는 핸들이 있으면 재사용, 죽었거나
+        없으면 attach_or_create — 떠 있는 한/글이 있으면 거기 붙고 없으면
+        새로 띄움.
 
-        ★ 탭의 백그라운드 worker 가 호출하는 메서드.
-        호출 스레드는 미리 init_com_for_thread() 한 상태여야 함.
+        ★ 탭의 백그라운드 worker 가 호출하는 메서드. 호출 스레드는 사전에
+        init_com_for_thread() 한 상태여야 함 (attach_or_create 가 자동 수행).
         """
-        if self.state.hwp is not None:
+        if self.state.hwp is not None and is_alive(self.state.hwp.hwp):
             return self.state.hwp
+        # 죽은 핸들이거나 처음 연결 — 정리 후 재시도
+        self.state.hwp = None
         self._set_status("한/글 연결 중...")
         session = attach_or_create(visible=True)
         self.state.hwp = session
-        kind = "신규 생성" if session.is_new else "기존 attach"
-        self._set_status(f"✔ 한/글 연결됨 ({kind})")
+        self._set_status(self._format_connect_status(session))
         return session
 
     def _reconnect_hwp(self) -> None:
-        """수동 (재)연결 버튼. 평소엔 누를 필요 없음."""
+        """
+        수동 (재)연결 버튼.
+
+        - 핸들이 살아있으면 재확인 메시지만 갱신
+        - 죽었거나 없으면 다시 attach_or_create (떠 있는 한/글에 붙거나 새로 띄움)
+        """
         self._set_status("한/글 연결 중...")
-        self.state.hwp = None
         threading.Thread(target=self._attach_hwp_async, daemon=True).start()
 
     def _attach_hwp_async(self) -> None:
         """수동 연결 버튼이 누른 백그라운드 attach."""
         try:
+            init_com_for_thread()
+            if self.state.hwp is not None and is_alive(self.state.hwp.hwp):
+                # 이미 잡힌 한/글이 살아있음 — 재사용 메시지만
+                msg = self._format_connect_status(self.state.hwp) + " — 기존 핸들 재사용"
+                self._set_status(msg)
+                return
+            self.state.hwp = None
             self.ensure_hwp()
         except Exception as e:
             err = f"✘ 한/글 연결 실패: {e}"
-            self.root.after(0, lambda: self._set_status(err))
+            self._set_status(err)
+
+    @staticmethod
+    def _format_connect_status(session: HwpSession) -> str:
+        """연결 결과를 사용자 친화적 status 메시지로."""
+        # 버전 정보 suffix — ROT moniker 에서 추출 가능했으면 노출
+        if session.moniker_name:
+            ver_suffix = f" [{session.version_name} #{session.instance_index}]"
+        else:
+            ver_suffix = ""
+
+        if not session.is_new:
+            return f"✔ 기존 한/글에 attach 됨{ver_suffix}"
+        if session.pre_existing:
+            # 한/글이 이미 떠 있었지만 attach 실패 → 새 인스턴스 spawn
+            return f"⚠ 한/글 새 인스턴스 생성 (기존 attach 불가){ver_suffix}"
+        return f"✔ 한/글 새로 띄움{ver_suffix}"
 
     def _set_status(self, msg: str) -> None:
         """status bar 업데이트 (어느 스레드에서 호출해도 안전)."""
