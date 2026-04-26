@@ -51,46 +51,54 @@ c:/projects/sentinel    c:/projects/sentinel-forge
 > 3단계 분리는 **관심사 분리·테스트 가능성·코드 재사용**을 위한 내부 설계이지,
 > 사용자에게 노출되는 인터페이스가 아닙니다. STAGE 1·2를 단독 호출하는 모드는 제공하지 않습니다.
 
+> **운용 전제 (2026-04-26 정정)**
+> 본 프로젝트는 **단일 환경·단일 툴**로 작동한다. 모든 운용 환경은 한/글이 설치되어
+> 있다고 전제한다 (환경1·환경2 모두). 따라서 STAGE 1·2·3 **전부 한/글 COM API
+> 사용 가능**. 원래 설계의 "STAGE 1·2 = 한/글 없이 lxml로 hwpx 직접 생성"
+> 전제는 폐기 — 한/글이 항상 있는데 굳이 ZIP+XML 직접 다룰 이유가 없음.
+
 ```
 입력: 개조식 md
         │
         ▼
 ┌──────────────────────────────────┐
 │  STAGE 1 — Formatter             │  산출: .hwpx 초안
-│  md → HWPX(ZIP+XML) 변환         │  한/글 ✗, LLM ✗
-│  결정론적, 폐쇄망 OK             │
+│  md → 파싱 → 렌더러 dispatch     │  한/글 ○ (COM), LLM ✗
+│  마크다운 요소를 element 별로     │
+│  렌더러 1개씩 호출 (8 종)         │
 └──────────────┬───────────────────┘
                ▼
 ┌──────────────────────────────────┐
 │  STAGE 2 — Linter                │  산출: .hwpx 정규화본
-│  HWPX → HWPX (XML 룰 적용)       │  한/글 ✗, LLM ✗
-│  표준 양식 강제·자동 교정         │
-│  - 번호체계 깊이                  │
-│  - 폰트·크기 일관성               │
+│  활성 문서 전체 스캔 + 일괄 룰   │  한/글 ○ (COM), LLM ✗
+│  - 번호체계 깊이 검증             │
+│  - 폰트·크기 일관성 강제          │
 │  - 표 스타일 통일                 │
-│  - 메타데이터 삽입                │
 │  - 들여쓰기 정합성                │
 └──────────────┬───────────────────┘
                ▼
 ┌──────────────────────────────────┐
-│  STAGE 3 — Polisher              │  산출: .hwpx 최종 (배치 모드 기본)
-│  COM API (형식 무관)              │  한/글 ○, LLM ✗
-│  렌더링-aware 작업만 수행         │
+│  STAGE 3 — Polisher              │  산출: .hwpx 최종
+│  사용자 선택 룰 1개씩 호출       │  한/글 ○ (COM), LLM ✗
+│  렌더링-aware + 단일 요소 단위    │
 │  - 자간 조정 (어절 줄바꿈 방지)  │
 │  - 페이지 break 최적화           │
 │  - 표 열 너비 auto-fit            │
-│  - 목차 페이지번호 갱신           │
+│  - 목차 페이지번호 갱신          │
+│  + 렌더러 8종 (실시간 박스 삽입) │
 └──────────────────────────────────┘
 출력: 배치 모드 → .hwpx / 실시간 모드 → 입력 형식 보존(.hwp 또는 .hwpx)
 ```
 
 ### 단계별 요약
 
-| 단계 | 입력 | 산출 | 한/글 | LLM(runtime) |
-|---|---|---|:-:|:-:|
-| **1** Formatter | 개조식 md | .hwpx 초안 | × | × |
-| **2** Linter | .hwpx 초안 | .hwpx 정규화본 | × | × |
-| **3** Polisher | .hwpx (또는 실시간 모드의 .hwp/.hwpx) | 배치 모드: .hwpx / 실시간 모드: 입력 형식 보존 | ○ | × |
+| 단계 | 입력 | 산출 | 한/글 | LLM(runtime) | 주요 역할 |
+|---|---|---|:-:|:-:|---|
+| **1** Formatter | 개조식 md | .hwpx 초안 | ○ | ✗ | md 파싱 + element별 렌더러 호출 |
+| **2** Linter | .hwpx 초안 | .hwpx 정규화 | ○ | ✗ | 문서 전체 일관성 점검·교정 |
+| **3** Polisher | .hwpx (또는 .hwp) | 폴리싱 완료 | ○ | ✗ | 단일 룰 호출 (자간·쪽번호·박스 삽입 등) |
+
+→ **3 단계는 _개념적 분리_** (관심사·코드 위치). 모두 같은 한/글 COM 인스턴스 위에서 동작.
 
 ### 두 시점의 분리 (중요)
 
@@ -107,13 +115,12 @@ c:/projects/sentinel    c:/projects/sentinel-forge
 
 | 영역 | 정책 | 비고 |
 |---|---|---|
-| STAGE 1·2 (XML 처리) | **HWPX 전용** | HWPX = ZIP+XML, 바이너리 .hwp 파서/생성기 영원히 불필요 |
-| STAGE 3 (COM 호출) | **형식 무관** | `HwpFrame.HwpObject` COM API 가 형식 자동 처리. 룰 코드는 단 한 줄도 분기 없음 |
+| 모든 단계 (COM 호출) | **형식 무관** | `HwpFrame.HwpObject` COM API 가 형식 자동 처리. 룰 코드는 단 한 줄도 분기 없음 |
 | 배치 모드 출력 | **.hwpx 강제** | 신규 문서는 정책 부합 형식으로만 |
 | 실시간 모드 입력 | .hwp / .hwpx 모두 | 사용자가 가진 레거시 .hwp 그대로 받음 |
 | 실시간 모드 출력 | 입력 형식 보존 (기본) | 별도 "hwpx로 변환 저장" 옵션 제공 가능 |
 
-→ 실용적 의미: Forge 가 .hwp 파일을 거부할 일은 없음. STAGE 3 룰은 형식 분기 없이 작동. STAGE 1·2 코드 베이스는 .hwp 바이너리에 대해 무지(無知).
+→ 실용적 의미: Forge 가 .hwp 파일을 거부할 일은 없음. 모든 룰은 형식 분기 없이 작동.
 
 ---
 
@@ -278,13 +285,24 @@ sentinel-forge/
 ├── forge/                     ← ★ 핵심 코어 라이브러리 (UI 없음)
 │   ├── __init__.py
 │   ├── com_helpers.py         ← set_param() 등 5단계 패턴 헬퍼
-│   ├── stage_1_formatter/     ← STAGE 1: md → HWPX (lxml + zipfile)
-│   ├── stage_2_linter/        ← STAGE 2: HWPX → HWPX (XML 룰)
-│   ├── stage_3_polisher/      ← STAGE 3: COM 룰 (형식 무관, 산출은 .hwpx 기본)
-│   ├── rules/
-│   │   ├── linter/            ← STAGE 2용 XML 룰 (결정론적)
-│   │   └── polisher/          ← STAGE 3용 COM 룰 (결정론적)
 │   ├── hwp_session.py         ← 활성 한/글 프로세스 attach + 신규 생성 헬퍼
+│   ├── renderers/             ← ★★ 마크다운 요소별 독립 렌더러 (STAGE 1·3 공유)
+│   │   ├── base.py            ElementRenderer 추상 베이스
+│   │   ├── primitives.py      표·셀·폰트 등 공통 COM 헬퍼 (~30개)
+│   │   ├── metadata.py        대제목 + 부서·일자 stamp
+│   │   ├── section.py         Ⅰ./Ⅱ. 중제목
+│   │   ├── subsection.py      가./나. 소제목
+│   │   ├── bullet.py          □ ○ - · 본문 글머리
+│   │   ├── annotation.py      * ※ † 주석 (단일 spec)
+│   │   ├── conclusion.py      => 결론 박스
+│   │   ├── note_callout.py    [참고] 박스
+│   │   └── attachment.py      [붙임] 페이지 break
+│   ├── stage_1_formatter/     ← STAGE 1: md 파싱 + 렌더러 dispatcher (COM 통한 hwpx 생성)
+│   ├── stage_2_linter/        ← STAGE 2: 활성 문서 전체 일관성 룰 (COM)
+│   ├── stage_3_polisher/      ← STAGE 3: 단일 룰 (자간·쪽번호 등) + 실시간 박스 삽입
+│   ├── rules/
+│   │   ├── linter/            ← STAGE 2용 일괄 룰 (결정론적)
+│   │   └── polisher/          ← STAGE 3용 단일 COM 룰 (renderers/ 호출 포함)
 │   └── utils/                 ← 한글화·번호 변환 등 순수 함수 유틸
 │
 ├── ui/                        ← ★ Tkinter GUI (단일 진입점)
@@ -326,12 +344,15 @@ sentinel-forge/
 | 영역 | 라이브러리 | 비고 |
 |---|---|---|
 | Python 버전 | **3.12** (현재 환경) | tool2 의 3.10 과는 별개 |
-| STAGE 1·2 (HWPX XML) | `lxml` + `zipfile` (표준) | HWPX = ZIP+XML, 직접 작성 |
-| STAGE 3 (COM) | `pywin32` 의 `win32com.client` | pyhwpx 미도입 (lock-in 회피, §11.5 협업 지침) |
+| STAGE 1·2·3 (모든 단계) | `pywin32` 의 `win32com.client` | 한/글 항상 설치 전제 — COM 일원화 |
 | GUI | `tkinter` + **`ttkbootstrap`** | 모던 테마, Tkinter 호환 |
-| 마크다운 파서 | `markdown-it-py` 또는 자체 정규식 | spec 단순해서 자체 가능 |
-| 5단계 COM 패턴 | `forge/com_helpers.py` 의 `set_param()` 1줄 헬퍼 | wrapper 메서드는 만들지 않음 |
+| 마크다운 파서 | 자체 정규식 (`forge/stage_1_formatter/parser.py`) | spec 단순해서 자체로 충분 |
+| YAML front-matter | `pyyaml` | 메타데이터 파싱 |
+| 5단계 COM 패턴 | `forge/com_helpers.py` 의 `set_param()` 1줄 헬퍼 | tool2 wrapper 411개 안 만듦 |
+| 렌더러 8종 | `forge/renderers/` (각 1 클래스) | STAGE 1 + STAGE 3 공유 |
 | dev-support MCP | Node.js + TypeScript (기존) | 변경 없음, dev 전용 |
+| (대안 미선택) lxml/zipfile | — | 한/글 COM 으로 충분, 직접 XML 생성 불필요 |
+| (대안 미선택) pyhwpx | — | lock-in 회피, COM 직접 호출 |
 
 → Forge 본체는 **Python 3.12 단일 스택**. dev-support MCP 만 Node 유지.
 
@@ -411,20 +432,21 @@ sentinel-forge/
 - md → HWPX 변환기 PoC + 단위 테스트
 - 기본 양식 적용 (폰트·여백·헤더 - editing-rules.md 기반)
 
-### F3 — STAGE 2: HWPX Linter
+### F3 — STAGE 2: Linter
 
 - 린터 룰셋 카탈로그 정의 (편집 규칙 → 룰 형식화)
-- XML 변환 모듈 (lxml 기반 추정)
+- COM 기반 활성 문서 일괄 스캔·교정 모듈
 - 룰 추가 인터페이스 (피드백을 룰로 흡수하는 구조)
 - 회귀 테스트 프레임 (룰 추가 시 기존 케이스 깨지지 않음 보장)
 
-### F4 — STAGE 3: COM Polisher
+### F4 — STAGE 3: Polisher
 
-- HWP COM 어댑터 (pywin32 추정)
+- HWP COM 어댑터 (이미 `forge/com_helpers.py` 로 골격 완료)
 - 자간 조정 룰 — 사용자가 명시한 핵심 기술 병목
 - 페이지 break 룰 — 고아 제목 방지, 표 분리 방지
 - 목차 페이지번호 갱신
-- 실시간 모드 — `polish-active` CLI로 열린 한/글 인스턴스에 STAGE 3 룰 수동 호출
+- 렌더러 8종 (`forge/renderers/`) STAGE 1 과 공유 — STAGE 3 실시간 모드에서도 박스 삽입에 사용
+- 실시간 모드 — GUI 탭 ③의 룰 버튼이 직접 렌더러·룰 호출
 
 ### F5 — 환경2 배포
 
@@ -477,6 +499,7 @@ sentinel-forge/
 |---|---|---|
 | TASK_LOG.md | **작성완료** | 전역 작업 이력 |
 | [spec/markdown-spec.md](spec/markdown-spec.md) | **확정 (v1.3)** | md 입력 사양 (계약). 7종 의미(메타데이터·층위·요약단어·주석·강조·결론 화살표·callout). **`c:/projects/sentinel/docs/markdown-spec.md`와 동기 유지 필수** |
+| [spec/renderer-spec.md](spec/renderer-spec.md) | **확정 (v0.1, 2026-04-26)** | 마크다운 요소별 독립 렌더러 사양 (8종). tool2 보고서1 spec authority 기반. STAGE 1·3 공유 — STAGE 1은 dispatcher가 노드 타입별 렌더러 호출, STAGE 3은 실시간 모드 버튼이 직접 호출 |
 | spec/editing-rules.md | 미작성 (예정) | HWP 편집 규칙 정형화. tool2 분석노트 §12.5 + tool2-spec-mcp 데이터를 토대로 작성 |
 | reference/tool2/분석노트.txt | **확정 (gitignore — 개발자 로컬)** | tool2 완전 분해 분석 §12. spec authority 1차 참조. 운영 필요 사양은 spec/ 또는 코드 주석으로 흡수 |
 | reference/README.md | 작성 안 함 (gitignore) | 레퍼런스 자료는 개발자 로컬 |
@@ -499,10 +522,62 @@ sentinel-forge/
 8. **작업 이력 기록.** 의미 있는 변경 시 `TASK_LOG.md`에 append.
 9. **★ tool2 spec authority 준수.** Forge가 산출하는 모든 hwp/hwpx의 시각 spec 의문 시 **tool2-spec-mcp** 또는 [reference/tool2/_unpacked/한컴라이브러리_decompiled.py](reference/tool2/_unpacked/한컴라이브러리_decompiled.py) 가 권위 있는 참조. 임의로 폰트·여백·글머리 속성을 정하지 말고 tool2 코드/spec을 먼저 확인할 것. tool2 코드를 import/차용하지는 않으나 출력 시각은 동등해야 함.
 10. **★ 입력 spec / 출력 spec 분리 인식.** Forge 입력 마크다운 spec = Forge 자체 (글머리표 기반). Forge 출력 시각 spec = tool2. tool2의 입력 형식(directive 기반 `네모:내용` 등)은 의도적으로 미지원 (§4 참조). 두 spec을 혼동하지 말 것.
-11. **MCP 활용 권장 (개발 시점).** 룰 작성 시:
-    - HWP COM API 검색 → `hwp-api-mcp` (search_hwp_action / get_hwp_member 등)
-    - tool2 spec 조회 → `tool2-spec-mcp` (search_tool2_methods / get_tool2_template / get_tool2_method_source 등)
-    두 MCP 모두 [.mcp.json](.mcp.json) 등록 완료.
+11. **★★★ MCP 우선 의무 (개발 시점) — "추측 금지, MCP 먼저".**
+    Forge 개발 환경에는 두 개의 dev-time MCP 서버가 등록되어 있다 ([.mcp.json](.mcp.json)). 새 액션·파라미터·시각 spec을 코드에 적기 **전에** 반드시 MCP로 먼저 검증하라. 자세한 워크플로는 §12 참조.
+    - **`hwp-api-mcp`** — 한컴 공식 HWP COM API 카탈로그 (Action / Member / ParameterSet 전수). 액션명·파라미터 항목명·flag(none/pending/required/plain) 권위 있는 출처.
+    - **`tool2-spec-mcp`** — 금감원 오피스 프로그램(tool2) 411 메서드 디컴파일 + 5 템플릿 + 1623 액션 사용 cross-ref. 시각 spec(폰트·여백·색상·호출 순서) 권위 있는 출처.
+    
+    **금지 행위**: ① MCP 검색 없이 액션명/파라미터명을 코드에 직접 작성 (BorderShape vs CellBorderFill 같은 사고가 다시 발생함). ② 디컴파일 텍스트나 PDF 를 grep해서 MCP를 우회 (DB가 가장 빠르고 정확). ③ 검색 결과를 받지 않고 추측으로 인접 액션명 만들기.
+
+---
+
+## 12. MCP 활용 워크플로 (개발 시점 의무)
+
+본 섹션은 §11-11번 의무를 구체화한다. 모든 신규 룰·렌더러·primitives 헬퍼 작성 시 아래 순서를 그대로 따른다.
+
+### 12.1 두 MCP의 역할 구분
+
+| MCP | 데이터 출처 | 답하는 질문 |
+|---|---|---|
+| **hwp-api-mcp** | 한컴 공식 PDF 4종 → 파싱·적재 | "이 동작에 해당하는 한/글 액션명은? 파라미터 항목 이름은? Run 가능한가 Execute 필수인가?" |
+| **tool2-spec-mcp** | tool2 411 메서드 디컴파일 + 5 템플릿 + 1623 액션 사용 | "tool2 보고서1의 대제목 박스는 어떤 액션 시퀀스를 어떤 순서로 호출하는가? 색상·여백·폰트 정확값은?" |
+
+→ **두 MCP 는 보완 관계**: hwp-api 는 "사전(辭典)", tool2-spec 은 "용례집". 신규 시각 요소 = 둘 다 검색.
+
+### 12.2 표준 워크플로 (5 단계)
+
+새 시각 요소 1개 (예: "녹색 박스 표 만들기")를 코드로 작성하기 전:
+
+1. **tool2-spec-mcp 로 용례 검색** — `search_tool2_methods("배경색")` → 유사 메서드(예: `표배경색`, `금감원페이지대제목`) 발견 → `get_tool2_method_source` 로 본문 확인. tool2 가 어떤 액션을 어떤 순서로 호출하는지 1차 확인.
+2. **hwp-api-mcp 로 액션 권위 확인** — 1단계에서 얻은 액션명 (예: `CellFill`) 을 `search_hwp_action` 으로 검증. flag(none/plain/required/pending) 와 ParameterSet 이름 확인.
+3. **파라미터 항목 확인** — `get_hwp_parameterset` 또는 `search_hwp_member` 로 SetItem 키 정확명 확인 (오타 포함 — 예: `BorderCorlorLeft` sic).
+4. **`forge/renderers/primitives.py` 에 헬퍼 추가** (또는 기존 헬퍼 재사용) — 검증된 액션명·파라미터명 그대로 사용. 코드 주석에 tool2 출처(파일:라인) 명시.
+5. **렌더러에서 헬퍼 호출** — primitives 만 사용. 렌더러는 액션명을 직접 알 필요 없음.
+
+### 12.3 자주 쓰는 호출 패턴
+
+```
+# tool2 가 어떻게 만들었는지 확인
+mcp__tool2-spec__search_tool2_methods({"query": "참고"})
+mcp__tool2-spec__get_tool2_method_source({"method": "금감원페이지참고"})
+
+# 한컴 공식 액션 카탈로그 확인
+mcp__hwp-api__search_hwp_action({"query": "셀 배경"})
+mcp__hwp-api__get_hwp_parameterset({"id": <ParameterSet id>})
+
+# 보고서 템플릿 단위 spec
+mcp__tool2-spec__get_tool2_template({"code": "report1"})
+mcp__tool2-spec__list_tool2_directives()  # 입력 directive (참고용)
+```
+
+### 12.4 실패 사례 (재발 방지)
+
+- **2026-04-26 BorderShape 사고**: `set_table_border_thickness` 가 존재하지 않는 액션 `BorderShape` 호출 → `'NoneType' object has no attribute 'CreateSet'` 런타임 에러. 원인: MCP 미사용 + 추측 코딩. MCP 1회 검색 (`search_hwp_action("셀 테두리")`) 으로 30초 만에 `CellBorderFill` (id=32) 정답 확인 가능했음. **재발 방지**: 신규 액션명은 반드시 §12.2 워크플로 1·2 단계 거친 후 작성.
+
+### 12.5 MCP 가용성 점검
+
+- 세션 시작 시 또는 새 액션·spec 검색 직전에 `ToolSearch` (또는 도구 이름 prefix `mcp__hwp-api__`, `mcp__tool2-spec__`) 로 두 MCP 가 deferred tool 로 로드되어 있는지 확인.
+- **로드 안 된 경우**: `.mcp.json` 의 dist/index.js 빌드 여부 + MariaDB(`hwp_api_db`, `tool2_spec_db`) 가 살아 있는지 확인. 빌드: `npm run build` (각 MCP 디렉토리). 로드 실패 상태에서 디컴파일 텍스트 grep 으로 우회하는 것은 **마지막 수단** — 이슈를 사용자에게 먼저 보고하라.
 
 ---
 
@@ -512,3 +587,6 @@ sentinel-forge/
 *2026-04-26 추가 갱신 — §2 "사용자 관점 vs 내부 구조" 도입부 + §3 모드↔stage 매핑표 추가. 사용자 노출 = 2 모드만, STAGE 1·2 단독 호출 모드(lint-only) 명시적 미제공*
 *2026-04-26 추가 갱신 — markdown spec v1.3: 소제목(`가.`/`나.`) + Callout 박스(`[참고]`/`[붙임]`) 신설. tool2 금감원페이지의 모든 시각 요소를 md spec으로 표현 가능. CLAUDE.md §4·§5 동기 갱신 + Sentinel 측 사본도 sync*
 *2026-04-26 추가 갱신 — UI 아키텍처 = **Full GUI 단일 진입점** 확정 (CLI 미제공). Tkinter + ttkbootstrap, 3-tab 구조 (기본정보·마크다운입력·개별작업). 활성 한/글 프로세스 자동 감지·attach. §3 구현 형태 신설 + §6 디렉토리 트리 갱신 + 구현 언어 Python 3.12 단일 스택 확정. 본격 개발 개시 — git init 수행 + .gitignore 전면 갱신*
+*2026-04-26 추가 갱신 — **렌더러 사양 spec/renderer-spec.md v0.1 확정**. 마크다운 요소 8종을 독립 클래스 8개로 분리 (MetadataRenderer ~ AttachmentRenderer). tool2 보고서1의 정확한 COM 시퀀스 매핑. STAGE 1 dispatcher + STAGE 3 실시간 버튼 양쪽에서 동일 렌더러 재활용 — "한 벌로 두 모드 완전 커버". §6 디렉토리 트리에 forge/renderers/ 반영*
+*2026-04-26 추가 갱신 — **운용 전제 정정**: 단일 환경·단일 툴, 모든 환경에 한/글 설치 전제. 원래 설계의 "STAGE 1·2 = 한/글 ✗ / lxml로 hwpx 직접 생성" 폐기. **3 stage 모두 한/글 COM API 사용**. §2 파이프라인 다이어그램·요약표·형식 정책·구현 언어 표 모두 정정. 3 stage 분리는 _개념적_ 관심사 분리만 의미 (1=md→hwpx, 2=문서 일관성, 3=단일 룰 + 렌더러 재활용)*
+*2026-04-26 추가 갱신 — **§12 MCP 활용 워크플로 신설 + §11-11번 의무화 격상**. 계기: BorderShape 사고 (존재하지 않는 액션을 추측으로 사용 → 런타임 NoneType 에러) — MCP 1회 검색으로 정답 즉시 확인 가능했음. §11-11번을 "권장"에서 "★★★ 의무"로 격상하고 금지 행위 3종 명시. §12 신설 — 두 MCP 역할 분담 / 5단계 표준 워크플로 / 자주 쓰는 호출 패턴 / 실패 사례 / 가용성 점검 절차*
