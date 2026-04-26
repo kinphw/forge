@@ -28,6 +28,10 @@ from ..renderers import (
     SubsectionRenderer,
 )
 from ..renderers import primitives as p
+from ..stage_2_linter import (
+    adjust_kerning_to_avoid_word_break,
+    align_left_indent,
+)
 from .parser import MarkdownDocument, Node
 from .templates import REPORT1_SPEC, ReportSpec
 
@@ -42,6 +46,8 @@ def generate_hwpx_via_com(
     작성부서: Optional[str] = None,
     작성일:   Optional[str] = None,
     is_new_session: bool = False,
+    apply_indent_align: bool = True,
+    apply_kerning: bool = True,
 ) -> str:
     """
     Args:
@@ -57,6 +63,16 @@ def generate_hwpx_via_com(
             True 면 한/글 인스턴스를 우리가 방금 띄운 상태 — 자동 생성된
             빈 문서를 그대로 활용해 FileNew 를 생략. False(기존 attach)
             면 사용자 작업 문서 보존을 위해 FileNew 로 분리.
+        apply_indent_align:
+            True (default) — STAGE 2 들여쓰기 정렬 후처리 실행 (bullet/
+            annotation 라인의 marker 다음 위치를 left indent 로 정렬).
+            "new" 모드에서만 동작. cursor 모드는 사용자 기존 문서 뒤에
+            추가 삽입하는 시나리오를 보호하기 위해 skip — 전체 순회 시
+            사용자가 미리 작성한 부분의 자간·들여쓰기까지 건드리게 됨.
+            (신규 삽입 영역만 인식해 적용하는 변형은 후속 작업.)
+        apply_kerning:
+            True (default) — STAGE 2 자간조정 후처리 실행 (어절 잘림 방지).
+            apply_indent_align 과 동일하게 "new" 모드에서만 동작.
 
     Returns:
         "new" 모드: 저장된 파일 절대 경로
@@ -97,8 +113,29 @@ def generate_hwpx_via_com(
     # ─── 본문 노드 dispatcher ───────────────────────
     log(f"[STAGE 1] 본문 {len(doc.nodes)} 노드 dispatcher 시작")
     _dispatch_nodes(hwp, doc.nodes, spec, log)
+    # (Bold 인라인 토큰 `__X__` 은 primitives.insert_text 가 렌더링 시점에 처리)
 
-    # ─── 모드별 후처리 ──────────────────────────────
+    # ─── STAGE 2 후처리 (new 모드만) ─────────────────
+    # 순서: 자간조정 → 들여쓰기 정렬.
+    # 사용자 검증 (2026-04-27): 들여쓰기 먼저 하면 자간조정으로 글자 너비
+    # 변경 후 본문 시작 위치가 미세하게 달라져 정렬이 틀어짐. 자간을 먼저
+    # 확정한 뒤 들여쓰기 정렬해야 본문 첫 글자 위치가 정확히 잡힘.
+    # cursor 모드는 skip — 기존 문서 뒤 추가 시나리오 보호.
+    if mode == "new":
+        if apply_kerning:
+            log("[STAGE 2] 자간조정 (어절 잘림 방지, 줄당 ±15회)")
+            try:
+                adjust_kerning_to_avoid_word_break(hwp)
+            except Exception as e:
+                log(f"  ⚠ 자간조정 중단: {e}")
+        if apply_indent_align:
+            log("[STAGE 2] 들여쓰기 정렬 (bullet/annotation 라인)")
+            try:
+                align_left_indent(hwp)
+            except Exception as e:
+                log(f"  ⚠ 들여쓰기 정렬 중단: {e}")
+
+    # ─── 모드별 저장 ────────────────────────────────
     if mode == "new":
         log(f"[STAGE 1] hwpx 저장: {out_path}")
         _save_as_hwpx(hwp, out_path)
