@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "hwp-api": {
+      "command": "node",
+      "args": ["C:/projects/sentinel-forge/dev-support/hwp-api-mcp/dist/index.js"],
+      "env": {
+        "MYSQL_HOST": "localhost",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "hdbuser",
+        "MYSQL_PASSWORD": "1226",
+        "DB_NAME": "hwp_api_db"
+      }
+    },
+    "tool2-spec": {
+      "command": "node",
+      "args": ["C:/projects/sentinel-forge/dev-support/tool2-spec-mcp/dist/index.js"],
+      "env": {
+        "MYSQL_HOST": "localhost",
+        "MYSQL_PORT": "3306",
+        "MYSQL_USER": "hdbuser",
+        "MYSQL_PASSWORD": "1226",
+        "DB_NAME": "tool2_spec_db"
+      }
+    }
+  }
+}
