@@ -12,10 +12,9 @@ authors = [
 dependencies = [
     # GUI
     "ttkbootstrap>=1.10.0",
-    # HWPX (ZIP+XML) — STAGE 1·2
-    "lxml>=5.0",
+    # md front-matter
     "pyyaml>=6.0",
-    # HWP COM — STAGE 3 + 활성 프로세스 attach
+    # HWP COM — 모든 STAGE + 활성 프로세스 attach
     "pywin32>=306; sys_platform == 'win32'",
     # 한/글 프로세스 감지 (attach 정책)
     "psutil>=5.9",
