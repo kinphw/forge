@@ -1,24 +1,25 @@
 {
+  "_comment": "경로는 ${FORGE_ROOT:-C:/projects/forge} 로 환경변수 + default. 다른 PC/경로로 옮길 땐 'setx FORGE_ROOT D:\\path\\to\\forge' 한 번 후 Claude Code 재시작.",
   "mcpServers": {
     "hwp-api": {
       "command": "node",
-      "args": ["C:/projects/sentinel-forge/dev-support/hwp-api-mcp/dist/index.js"],
+      "args": ["${FORGE_ROOT:-C:/projects/forge}/dev-support/hwp-api-mcp/dist/index.js"],
       "env": {
-        "MYSQL_HOST": "localhost",
-        "MYSQL_PORT": "3306",
-        "MYSQL_USER": "hdbuser",
-        "MYSQL_PASSWORD": "1226",
+        "MYSQL_HOST": "${FORGE_DB_HOST:-localhost}",
+        "MYSQL_PORT": "${FORGE_DB_PORT:-3306}",
+        "MYSQL_USER": "${FORGE_DB_USER:-hdbuser}",
+        "MYSQL_PASSWORD": "${FORGE_DB_PASSWORD:-1226}",
         "DB_NAME": "hwp_api_db"
       }
     },
     "tool2-spec": {
       "command": "node",
-      "args": ["C:/projects/sentinel-forge/dev-support/tool2-spec-mcp/dist/index.js"],
+      "args": ["${FORGE_ROOT:-C:/projects/forge}/dev-support/tool2-spec-mcp/dist/index.js"],
       "env": {
-        "MYSQL_HOST": "localhost",
-        "MYSQL_PORT": "3306",
-        "MYSQL_USER": "hdbuser",
-        "MYSQL_PASSWORD": "1226",
+        "MYSQL_HOST": "${FORGE_DB_HOST:-localhost}",
+        "MYSQL_PORT": "${FORGE_DB_PORT:-3306}",
+        "MYSQL_USER": "${FORGE_DB_USER:-hdbuser}",
+        "MYSQL_PASSWORD": "${FORGE_DB_PASSWORD:-1226}",
         "DB_NAME": "tool2_spec_db"
       }
     }
