@@ -92,15 +92,19 @@ def _is_bullet_or_annotation_marker(word: str) -> bool:
 
 
 def _is_body_word(c: str) -> bool:
-    """tool1 본문 판정 — alpha 포함 + '.' 없음."""
-    flag = False
-    for ch in c:
-        if ch.isalpha():
-            flag = True
-        elif ch == ".":
-            flag = False
-            break
-    return flag
+    """
+    본문 워드 판정 — 한 글자라도 alphabetic (한글 자모/음절·라틴 등) 이면 True.
+
+    원래 tool1 은 "alpha 포함 + '.' 없음" 이었으나 그 `.` 배제 로직이 너무 공격적.
+    한국어 prose 의 `반갑니다.`, `'26.4.19.자로`, `Co.` 등 자연스러운 끝점·중간점이
+    들어간 첫 본문 워드를 skip 하게 되어, 다음 워드 (예: `이`/`것은`) 에 indent 가
+    설정 → 두번째 줄부터 본문 첫 글자보다 한참 오른쪽으로 정렬되는 버그.
+
+    원래 의도였던 "번호 토큰 (`1.`, `(1)`, `①`) skip" 은 alpha 가 없으므로 본 함수가
+    자연스럽게 False 를 반환 — `.` 특별 처리 없어도 동작. 반대로 alpha 가 있으면
+    번호가 아니라 본문이므로 body 로 인정.
+    """
+    return any(ch.isalpha() for ch in c)
 
 
 def _process_paragraph(hwp: Any, log: LogFn = None) -> None:
