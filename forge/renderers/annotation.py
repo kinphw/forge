@@ -20,11 +20,6 @@ class AnnotationRenderer(ElementRenderer):
         a = self.spec.annotation
         hwp = self.hwp
 
-        # 위 빈 줄
-        if a.space_above_pt > 0:
-            p.set_font(hwp, a.font, a.space_above_pt, bold=False)
-            p.break_para(hwp)
-
         p.set_font(hwp, a.font, a.size_pt, bold=a.bold)
         p.set_line_spacing(hwp, a.line_spacing)
         p.set_indent(hwp, a.indent_pt)

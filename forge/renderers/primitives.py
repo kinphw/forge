@@ -135,6 +135,11 @@ def set_font(hwp: Any, font: str, size_pt: float, bold: bool = False) -> None:
     })
 
 
+def set_font_size(hwp: Any, pt: float) -> None:
+    """폰트 크기만 변경 (Height). 다른 CharShape 항목은 보존."""
+    set_param(hwp, "CharShape", {"Height": int(pt * 100)})
+
+
 def set_text_color(hwp: Any, r: int, g: int, b: int) -> None:
     """글자색 (CharShape.TextColor)."""
     set_param(hwp, "CharShape", {"TextColor": rgb(hwp, r, g, b)})

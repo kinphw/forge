@@ -43,7 +43,7 @@ class BulletStyle:
 @dataclass
 class ReportSpec:
     """전체 보고서 양식 spec — 사용자가 GUI에서 테일러링 가능."""
-    name: str = "보고서 1 (금감원페이지)"
+    name: str = "보고서 1"
     code: str = "report1"
 
     # 페이지 설정
@@ -84,29 +84,32 @@ class ReportSpec:
     # 사용자 명시: 모두 휴먼명조 15pt 동일, 깊이만 균등 누진.
     #   - 내어쓰기: -22 → -33.6 (Δ-11.6) → -45.2 → -56.8
     #   - fixed_pre: 1 → 3 → 5 → 7 (왼쪽 들여쓰기 2칸씩)
+    # space_above_pt 는 사용자 요청으로 더 이상 렌더러에서 사용하지 않음 (자동 빈 줄
+    # 삽입 알고리즘 제거). md 소스의 명시적 빈 줄만 8pt 빈 단락으로 1:1 emit.
+    # 필드는 BulletStyle dataclass 호환 위해 0.0 으로 유지.
     bullets: list[BulletStyle] = field(default_factory=lambda: [
         BulletStyle(  # L1 □
             md_glyph="□", out_glyph="□",
             font="휴먼명조", size_pt=15.0, indent_pt=-22.0,
-            bold=False, space_above_pt=10.0, line_spacing=150,
+            bold=False, space_above_pt=0.0, line_spacing=150,
             fixed_pre=1, fixed_post=2,
         ),
         BulletStyle(  # L2 ○
             md_glyph="○", out_glyph="◦",
             font="휴먼명조", size_pt=15.0, indent_pt=-33.6,
-            bold=False, space_above_pt=8.0, line_spacing=150,
+            bold=False, space_above_pt=0.0, line_spacing=150,
             fixed_pre=3, fixed_post=2,
         ),
         BulletStyle(  # L3 -
             md_glyph="-", out_glyph="-",
             font="휴먼명조", size_pt=15.0, indent_pt=-45.2,
-            bold=False, space_above_pt=6.0, line_spacing=150,
+            bold=False, space_above_pt=0.0, line_spacing=150,
             fixed_pre=5, fixed_post=2,
         ),
         BulletStyle(  # L4 ·
             md_glyph="·", out_glyph="·",
             font="휴먼명조", size_pt=15.0, indent_pt=-56.8,
-            bold=False, space_above_pt=4.0, line_spacing=150,
+            bold=False, space_above_pt=0.0, line_spacing=150,
             fixed_pre=7, fixed_post=2,
         ),
     ])
@@ -119,7 +122,7 @@ class ReportSpec:
         md_glyph="*",  # 대표 마커. 실제로는 * / ** / *** / ※ / † 모두 이 spec 적용
         out_glyph="",  # 입력 마커 그대로 — 빈 문자열은 "marker 보존" 의미
         font="맑은 고딕", size_pt=12.0, indent_pt=-33.6,
-        bold=False, space_above_pt=3.0, line_spacing=150,
+        bold=False, space_above_pt=0.0, line_spacing=150,
         fixed_pre=8, fixed_post=2,
     ))
 

@@ -73,8 +73,11 @@ FRONT_MATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 SECTION_RE = re.compile(r"^(\d+)\.\s+(.+)$")
 SUBSECTION_RE = re.compile(r"^([가나다라마바사아자차카타파하])\.\s+(.+)$")
 BULLET_RES = [
-    ("□", re.compile(r"^□\s*(.+)$")),
-    ("○", re.compile(r"^○\s*(.+)$")),
+    # `□`/`○` 는 IME 직접 입력이 까다로움 (한자키 + 선택). 사용자가 손으로 타이핑할
+    # 때 자주 쓰는 한글 자모 `ㅁ`(U+3141)/`ㅇ`(U+3147) 도 alias 로 허용. 매칭 후
+    # Node.marker 에는 canonical(`□`/`○`) 저장 — 렌더러는 한 종류만 처리.
+    ("□", re.compile(r"^[□ㅁ]\s*(.+)$")),
+    ("○", re.compile(r"^[○ㅇ]\s*(.+)$")),
     ("-", re.compile(r"^-\s+(.+)$")),
     ("·", re.compile(r"^·\s*(.+)$")),
 ]

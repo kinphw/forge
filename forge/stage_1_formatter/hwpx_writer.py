@@ -81,11 +81,12 @@ def generate_hwpx_via_com(
     # ─── 모드별 사전 설정 ───────────────────────────
     if mode == "new":
         out_path = os.path.abspath(out_path)
-        if is_new_session:
-            log("[STAGE 1] 신규 한/글 — 자동 생성된 빈 문서 활용 (FileNew 생략)")
-        else:
-            log("[STAGE 1] 기존 한/글에 attach — 새 문서 분리 (FileNew)")
-            p.run(hwp, "FileNew")
+        # 운영 정책: 사용자가 한/글을 먼저 띄운 상태에서만 작동 (allow_spawn=False).
+        # → 항상 기존 attach 케이스. Run("FileNew") 로 새 문서 분리.
+        # XHwpDocuments.Add() 는 doc 객체는 생기지만 HAction cursor target 이
+        # 이전 doc 에 머무는 부작용 있음 (사용자 검증 2026-04-27) — 사용 금지.
+        log("[STAGE 1] 새 문서 생성 (FileNew)")
+        p.run(hwp, "FileNew")
 
         log(f"[STAGE 1] 페이지 여백 적용: L={spec.margins.left} R={spec.margins.right} "
             f"T={spec.margins.top} B={spec.margins.bottom} mm")
@@ -160,8 +161,23 @@ def _dispatch_nodes(
     spec: ReportSpec,
     log: callable,
 ) -> None:
-    """노드 리스트 순회 — 타입에 따라 적절한 렌더러 호출."""
+    """
+    노드 리스트 순회 — 타입에 따라 적절한 렌더러 호출.
+
+    ★ Blank 처리 정책 (2026-04 갱신):
+      bullet/annotation 렌더러의 auto-prepend (위 빈 줄) 알고리즘을 제거 후,
+      markdown 소스의 빈 줄(BlankNode) 을 1:1 로 emit 한다 — 즉 입력 그대로
+      반영. 빈 줄은 8pt 짜리 빈 단락으로 렌더링 (실시간 모드 기본값과 동일).
+      자동 흡수/보정 없음.
+    """
     for node in nodes:
+        if node.type == "blank":
+            try:
+                p.set_font_size(hwp, 8)
+                p.break_para(hwp)
+            except Exception:
+                pass
+            continue
         try:
             _dispatch_one(hwp, node, spec)
         except Exception as e:
@@ -174,10 +190,7 @@ def _dispatch_nodes(
 
 
 def _dispatch_one(hwp: Any, node: Node, spec: ReportSpec) -> None:
-    """한 노드 → 적절한 렌더러 1회 호출."""
-    if node.type == "blank":
-        p.break_para(hwp)
-        return
+    """한 노드 → 적절한 렌더러 1회 호출. blank 노드는 _dispatch_nodes 가 처리."""
 
     if node.type == "section":
         # marker '1.' → int 1

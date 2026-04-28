@@ -37,11 +37,6 @@ class BulletRenderer(ElementRenderer):
         bs = self.spec.bullets[level - 1]
         hwp = self.hwp
 
-        # 위 빈 줄
-        if bs.space_above_pt > 0:
-            p.set_font(hwp, bs.font, bs.space_above_pt, bold=False)
-            p.break_para(hwp)
-
         # 폰트·크기·줄간격·내어쓰기 적용
         p.set_font(hwp, bs.font, bs.size_pt, bold=bs.bold)
         p.set_line_spacing(hwp, bs.line_spacing)
