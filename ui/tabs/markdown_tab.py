@@ -7,8 +7,10 @@
   3. "hwpx 생성" 버튼 → 한/글 새 문서 생성 → 본문 삽입 → SaveAs hwpx
   4. 결과 파일 경로를 로그·status 에 표시
 
-탭 ① 의 spec 을 spec 인자로 사용. front-matter 가 있으면 우선,
-없으면 탭 ① 의 메타데이터 입력값으로 fallback.
+★ 2026-04-28: 본 탭은 'Sentinel 등 외부 작성자가 만든 md 일괄 변환' 전용.
+'활성 문서 커서에 삽입' 옵션은 탭 ① 의 'Ctrl+Shift+X — 선택 영역 → md 변환'
+으로 대체되어 제거 (한/글 IME 가 직접 매끄럽게 처리하므로 사용자가 한/글에서
+타이핑한 뒤 영역 선택 → 단축키 호출이 더 자연스럽다).
 """
 from __future__ import annotations
 
@@ -76,23 +78,13 @@ class MarkdownTab:
 
         ttk.Separator(toolbar, orient="vertical").pack(side=LEFT, fill=Y, padx=8)
 
-        # 출력 모드 라디오
-        self.var_output_mode = tk.StringVar(value="new")  # "new" | "cursor"
-        ttk.Radiobutton(
-            toolbar, text="새 hwpx 파일에 생성",
-            variable=self.var_output_mode, value="new",
-        ).pack(side=LEFT, padx=(0, 4))
-        ttk.Radiobutton(
-            toolbar, text="현재 hwpx 커서에 삽입",
-            variable=self.var_output_mode, value="cursor",
-        ).pack(side=LEFT, padx=(0, 8))
-
         self.btn_convert = ttk.Button(
-            toolbar, text="▶ hwpx 생성 (변환)",
+            toolbar, text="▶ 새 hwpx 파일로 변환",
             command=self._on_convert,
         )
         self.btn_convert.pack(side=LEFT)
-        # 항상 활성 — 클릭 시 한/글 자동 attach (lazy)
+        # 항상 활성 — 클릭 시 한/글 자동 attach (lazy).
+        # 활성 문서 커서에 삽입은 탭 ① 의 Ctrl+Shift+X 로 이관.
 
         # ─── 메타데이터 입력 (spec v1.4: 작성부서·작성일은 markdown 이 아닌 UI 영역) ───
         meta_bar = ttk.Frame(self.frame)
@@ -156,35 +148,30 @@ class MarkdownTab:
             messagebox.showinfo("입력 없음", "markdown 을 입력하거나 '샘플 채우기' 를 눌러보세요.")
             return
 
-        mode = self.var_output_mode.get()  # "new" | "cursor"
-        out_path = ""
-
-        if mode == "new":
-            # 새 파일 저장 위치 선택
-            out_path = filedialog.asksaveasfilename(
-                title="hwpx 저장 위치",
-                defaultextension=".hwpx",
-                filetypes=[("HWPX", "*.hwpx")],
-                initialfile=f"forge_draft_{datetime.now().strftime('%Y%m%d_%H%M%S')}.hwpx",
-            )
-            if not out_path:
-                return
-        # cursor 모드는 경로 불필요 — 활성 문서의 커서 위치에 바로 삽입
+        # 새 파일 저장 위치 선택
+        out_path = filedialog.asksaveasfilename(
+            title="hwpx 저장 위치",
+            defaultextension=".hwpx",
+            filetypes=[("HWPX", "*.hwpx")],
+            initialfile=f"forge_draft_{datetime.now().strftime('%Y%m%d_%H%M%S')}.hwpx",
+        )
+        if not out_path:
+            return
 
         # UI 블로킹 방지: 백그라운드 스레드
         self.btn_convert.configure(state="disabled", text="변환 중...")
         threading.Thread(
             target=self._convert_worker,
-            args=(src, out_path, mode), daemon=True,
+            args=(src, out_path), daemon=True,
         ).start()
 
-    def _convert_worker(self, src: str, out_path: str, mode: str) -> None:
+    def _convert_worker(self, src: str, out_path: str) -> None:
         # 백그라운드 스레드에서 COM 사용 — CoInitialize 필수
         # (이거 없으면 'CoInitialize가 호출되지 않았습니다' 오류)
         init_com_for_thread()
         try:
             self._log("─" * 50)
-            self._log(f"[mode] {mode} ({'새 hwpx 파일' if mode=='new' else '활성 문서 커서'})")
+            self._log("[mode] 새 hwpx 파일")
             self._log("[parse] markdown 파싱 시작")
             doc = parse_markdown(src)
             self._log(f"[parse] 보고서명={doc.metadata.보고서명!r} (front-matter)")
@@ -200,21 +187,10 @@ class MarkdownTab:
             session = self.app.ensure_hwp()
             hwp = session.hwp
 
-            # cursor 모드: 활성 문서가 있는지 확인
-            if mode == "cursor":
-                try:
-                    if hwp.XHwpDocuments.Count == 0:
-                        raise RuntimeError(
-                            "현재 한/글에 열린 문서가 없습니다. "
-                            "한/글에서 문서를 열거나 '새 hwpx 파일' 모드를 사용하세요."
-                        )
-                except AttributeError:
-                    pass  # COM API 차이 — 무시
-
             # 변환 — 렌더러 dispatcher
             result = generate_hwpx_via_com(
                 hwp, doc, out_path,
-                spec=self.state.spec, log=self._log, mode=mode,
+                spec=self.state.spec, log=self._log, mode="new",
                 작성부서=부서, 작성일=일자,
                 is_new_session=session.is_new,
             )
@@ -222,12 +198,8 @@ class MarkdownTab:
             # ★ 성공 시 msgbox 미표시 — 작업 흐름 방해 회피.
             # 결과는 로그 패널 + status bar 로 노출 (실패/경고는 여전히 msgbox 로 표면화).
             self._log("─" * 50)
-            if mode == "new":
-                self._log(f"✔ 새 hwpx 파일: {result}")
-                self.app._set_status(f"✔ 변환 완료 — {result}")
-            else:
-                self._log("✔ 활성 문서 커서 위치에 삽입 완료 (저장은 한/글에서 직접)")
-                self.app._set_status("✔ 활성 문서 커서 위치에 삽입 완료")
+            self._log(f"✔ 새 hwpx 파일: {result}")
+            self.app._set_status(f"✔ 변환 완료 — {result}")
         except MultipleHwpInstancesError as e:
             self._log(f"⚠ 한/글 인스턴스 {len(e.instances)}개 — picker 표시")
             self.app.prompt_pick_from_worker(e.instances)
@@ -249,7 +221,7 @@ class MarkdownTab:
                 "변환 실패", f"{type(err).__name__}: {err}"))
         finally:
             self.frame.after(0, lambda: self.btn_convert.configure(
-                state="normal", text="▶ hwpx 생성 (변환)"))
+                state="normal", text="▶ 새 hwpx 파일로 변환"))
 
     # spec v1.4: 메타데이터 fallback 메서드 제거.
     #   - 보고서명: markdown front-matter (Metadata) 에서 직접

@@ -20,6 +20,10 @@ from forge.hwp_session import (
     NoExistingHwpError,
     init_com_for_thread,
 )
+from forge.stage_1_formatter import (
+    NoSelectionError,
+    convert_selection_to_hwpx,
+)
 from forge.stage_2_linter import (
     adjust_kerning_current_paragraph,
     align_current_paragraph,
@@ -85,7 +89,7 @@ class RealtimeTab:
         ).pack(side=LEFT, padx=(20, 0))
 
         # ─── hotkey letter StringVars (사용자 편집 가능) + 상태 라벨 dict ────
-        # 6 개 hotkey 각각 letter 1글자 — 비우면 비활성화. 변경 시 GlobalHotkeyManager
+        # 7 개 hotkey 각각 letter 1글자 — 비우면 비활성화. 변경 시 GlobalHotkeyManager
         # 에 PostThreadMessage 로 재등록 요청. 결과는 status 라벨 (✓ / ✗ / —) 로 표시.
         self.var_hk_letter: dict[int, tk.StringVar] = {
             1: tk.StringVar(value="Q"),
@@ -94,10 +98,11 @@ class RealtimeTab:
             4: tk.StringVar(value="S"),
             5: tk.StringVar(value="D"),  # 현재 문단 8pt
             6: tk.StringVar(value="Z"),  # 자간 0 초기화
+            7: tk.StringVar(value="X"),  # 선택 영역 → 마크다운 변환
         }
         # 마지막으로 성공 적용된 letter — 실패 시 revert 기준
         self._hk_applied: dict[int, str] = {
-            1: "Q", 2: "W", 3: "A", 4: "S", 5: "D", 6: "Z",
+            1: "Q", 2: "W", 3: "A", 4: "S", 5: "D", 6: "Z", 7: "X",
         }
         # 상태 라벨 위젯 (foreground 동적 변경 위해 reference 보관)
         self._hk_status_lbl: dict[int, ttk.Label] = {}
@@ -206,7 +211,23 @@ class RealtimeTab:
         self._build_hotkey_widget(hk6, hk_id=6)
         hk6.grid(row=5, column=2, sticky="w")
 
-        # ─── 행 6·7: 개별 진단 버튼 (체크박스 토글, 기본 숨김) ──
+        # ─── 행 6: 선택 영역 → 마크다운 변환 (영역 필수) ────────
+        # 한/글 자체에서 md 본문을 타이핑한 뒤 영역 선택 → 단축키 호출.
+        # 선택 영역 plain text 를 추출해 cursor 모드로 그 자리에 변환 출력.
+        # Tk Text 의 한글 IME 매끄럽지 않음 회피 — 한/글 IME 가 매끄럽다.
+        btn7 = ttk.Button(
+            grid, text="선택 영역 → 마크다운 변환",
+            command=self._run_md_convert_selection,
+            width=24,
+        )
+        btn7.grid(row=6, column=0, sticky="w", pady=2, padx=(0, 8))
+        Tooltip(btn7,
+                "한/글에서 영역 선택 후 호출 — 선택 텍스트를 마크다운으로 해석해 변환 결과로 대체")
+        hk7 = ttk.Frame(grid)
+        self._build_hotkey_widget(hk7, hk_id=7)
+        hk7.grid(row=6, column=2, sticky="w")
+
+        # ─── 행 7·8: 개별 진단 버튼 (체크박스 토글, 기본 숨김) ──
         # 토글 시 grid_remove() / grid() 로 노출 제어.
         self.btn_indent_only = ttk.Button(
             grid, text="들여쓰기 정렬",
@@ -305,6 +326,10 @@ class RealtimeTab:
     def hotkey_kerning_reset(self) -> None:
         """Ctrl+Shift+Z — 자간 0 초기화 (선택 영역 또는 현재 문단)."""
         self._run_kerning_reset()
+
+    def hotkey_md_convert_selection(self) -> None:
+        """Ctrl+Shift+X — 한/글 선택 영역을 마크다운으로 해석해 그 자리에 변환 출력."""
+        self._run_md_convert_selection()
 
     # ----------------------------------------- 폰트/크기 입력 묶음 (지정서식 컬럼)
     def _make_font_cluster(
@@ -438,9 +463,9 @@ class RealtimeTab:
         """
         if self.var_show_individual.get():
             self.btn_indent_only.grid(
-                row=6, column=0, sticky="w", pady=2, padx=(0, 8))
-            self.btn_kerning_only.grid(
                 row=7, column=0, sticky="w", pady=2, padx=(0, 8))
+            self.btn_kerning_only.grid(
+                row=8, column=0, sticky="w", pady=2, padx=(0, 8))
         else:
             self.btn_indent_only.grid_remove()
             self.btn_kerning_only.grid_remove()
@@ -749,6 +774,67 @@ class RealtimeTab:
         except Exception as e:
             self._log(f"[ERROR] {type(e).__name__}: {e}")
             self.app._set_status(f"✘ 자간 reset 실패: {e}")
+
+    # ---------------------------- 선택 영역 → 마크다운 변환 (Ctrl+Shift+X)
+    def _run_md_convert_selection(self) -> None:
+        """한/글 선택 영역의 plain text 를 md 로 해석해 그 자리에 변환 출력. 백그라운드."""
+        self.app._set_status("[md-convert] 선택 영역 변환 중...")
+        threading.Thread(
+            target=self._run_md_convert_selection_async, daemon=True,
+        ).start()
+
+    def _run_md_convert_selection_async(self) -> None:
+        from tkinter import messagebox
+
+        self._log("")
+        self._log("━━━━━━ 선택 영역 → 마크다운 변환 시작 ━━━━━━")
+        try:
+            init_com_for_thread()
+            try:
+                session = self.app.ensure_hwp()
+                self._log(f"[hwp] session: {session.version_name} #{session.instance_index}")
+            except MultipleHwpInstancesError as e:
+                self._log(f"[hwp] 다중 인스턴스 ({len(e.instances)}개) — picker 표시")
+                self.app._set_status("⚠ md 변환 보류: 한/글 인스턴스 선택 필요")
+                self.app.prompt_pick_from_worker(e.instances)
+                return
+            except NoExistingHwpError as e:
+                self._log(f"[hwp] 한/글 미실행: {e}")
+                self.app._set_status("✘ md 변환 실패: 한/글 미실행")
+                self.app.root.after(0, lambda: messagebox.showwarning(
+                    "한/글 미실행",
+                    "떠 있는 한/글 인스턴스가 없습니다.\n"
+                    "한/글을 먼저 실행하시고 '한/글 선택' 버튼으로 연결해 주세요.",
+                ))
+                return
+            except Exception as e:
+                self._log(f"[hwp] attach 실패: {e}")
+                self.app._set_status(f"✘ md 변환 실패: {e}")
+                return
+
+            try:
+                node_count = convert_selection_to_hwpx(
+                    session.hwp, spec=self.state.spec, log=self._log,
+                )
+            except NoSelectionError as e:
+                self._log(f"[skip] {e}")
+                self.app._set_status(f"⚠ md 변환 — {e}")
+                self.app.root.after(0, lambda: messagebox.showinfo(
+                    "선택 영역 없음",
+                    "한/글에서 변환할 마크다운 본문을 영역으로 먼저 지정한 뒤 "
+                    "다시 단축키를 눌러주세요 (단순 캐럿 위치만으로는 동작하지 않습니다).",
+                ))
+                return
+
+            self._log("━━━━━━ 선택 영역 → 마크다운 변환 완료 ━━━━━━")
+            done_msg = f"✔ 선택 영역 → md 변환 완료 ({node_count} 노드)"
+            self._log(done_msg)
+            self.app._set_status(done_msg)
+        except Exception as e:
+            self._log(f"[ERROR] {type(e).__name__}: {e}")
+            import traceback
+            self._log(traceback.format_exc())
+            self.app._set_status(f"✘ md 변환 실패: {e}")
 
     # ---------------------------- 연속 실시 (들여쓰기 → 자간 → 들여쓰기)
     def _run_kerning_then_indent(self) -> None:

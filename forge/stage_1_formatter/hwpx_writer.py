@@ -32,8 +32,13 @@ from ..stage_2_linter import (
     adjust_kerning_to_avoid_word_break,
     align_left_indent,
 )
-from .parser import MarkdownDocument, Node
+from ..stage_2_linter._range import selection_range
+from .parser import MarkdownDocument, Node, parse_markdown
 from .templates import REPORT1_SPEC, ReportSpec
+
+
+class NoSelectionError(RuntimeError):
+    """convert_selection_to_hwpx 호출 시 selection 영역이 설정되지 않은 상태."""
 
 
 def generate_hwpx_via_com(
@@ -256,3 +261,106 @@ def _save_as_hwpx(hwp: Any, out_path: str) -> None:
         hwp.SaveAs(out_path, "HWPX", "")
     except TypeError:
         hwp.SaveAs(out_path)
+
+
+# ============================================================================
+# 활성 문서 — 선택 영역 텍스트를 마크다운으로 해석하여 그 자리에 변환 출력
+# ============================================================================
+
+def convert_selection_to_hwpx(
+    hwp: Any,
+    spec: ReportSpec = REPORT1_SPEC,
+    log: callable = print,
+) -> int:
+    """
+    한/글 활성 문서의 선택 영역을 plain text 로 추출 → md 파싱 →
+    선택 영역을 변환 결과로 대체 치환.
+
+    동작 순서:
+      1. selection_range() 로 영역 검사. 단순 캐럿이면 NoSelectionError raise.
+      2. GetTextFile("TEXT", "saveblock") 로 선택 영역의 텍스트만 추출.
+         서식은 모두 버림 — 사용자 의도가 'plain md 로 보겠다' 이므로.
+      3. Run("Delete") 로 선택 영역 제거 — 캐럿이 그 자리에 남음.
+      4. parse_markdown(text) → generate_hwpx_via_com(mode='cursor') 로
+         그 위치에 변환 결과를 emit.
+
+    배경:
+      Tk Text 위젯의 한글 IME 가 매끄럽지 않아 '내장 에디터에 직접 타이핑'
+      UX 가 어색하다. 한/글 자체의 IME 는 매우 잘 동작하므로 사용자가
+      한/글에서 md 본문을 타이핑한 뒤 영역 선택 → Ctrl+Shift+X 로 즉석 변환
+      하는 동선이 더 자연스럽다 (마크다운 탭은 외부 작성자 산출 md 의 일괄
+      변환 전용으로 좁힘).
+
+      한/글에서 손쉽게 입력하기 위해 글머리 alias `ㅁ`(U+3141) → `□`,
+      `ㅇ`(U+3147) → `○` 가 parser 에 이미 반영되어 있고, front-matter 도
+      필요 없음 (메타데이터는 새 파일 변환에서만 의미가 있고 cursor 모드는
+      스킵).
+
+      ★ 권위 reference — tool2 (금감원 오피스 프로그램) `마크다운()` 메서드
+      (한컴라이브러리_decompiled.py L12102~) 가 정확히 동일한 패턴:
+      `블록텍스트()` 로 selection 추출 → `HAction.Run('Delete')` → marker
+      별 emit. 우리는 GetTextFile 한 번 호출로 전체 받아 외부 파서에 위임.
+
+    Returns:
+        삽입된 본문 노드 개수 (디버깅·로그용).
+
+    Raises:
+        NoSelectionError: 선택 영역이 없거나 비어있는 경우.
+    """
+    # ── selection 진단 ──
+    # selection_range 는 GetSelectedPosBySet 기반 (모든 한/글 버전 호환).
+    # 그래도 안전망으로 GetTextFile 결과 길이도 보조 판정에 사용한다.
+    sel = selection_range(hwp)
+    log(f"[md-convert] selection_range = {sel}")
+
+    # 1) 선택 영역 텍스트 추출 — 서식 버리고 plain text 만.
+    #    GetTextFile(format, option): 한컴 공식 (HwpAutomation_2504.txt p.24).
+    #      format="TEXT"   — 일반 텍스트. 유니코드 전용 정보(한자·고어 등) 손실.
+    #                        한국어 prose 는 무손실. ※ HWPML2X 는 서식 포함이라 X.
+    #      option="saveblock" — 선택 블록만 export (콜론·:true 같은 suffix 없음).
+    #    한계: 개체 선택 상태(표·이미지·도형) 에서는 동작 안 함 — 텍스트
+    #          selection 만 처리.
+    try:
+        raw = hwp.GetTextFile("TEXT", "saveblock")
+    except Exception as e:
+        log(f"[md-convert] GetTextFile 호출 실패: {e}")
+        raise NoSelectionError(
+            "선택 영역 텍스트 추출 실패 — 한/글 selection 상태를 확인해 주세요."
+        ) from e
+
+    text = (raw or "").rstrip()
+    log(f"[md-convert] GetTextFile 결과 = {len(text)}자")
+
+    # 2) 판정 (보수적 — 비안전한 경우 거부)
+    #    text 가 비어있으면: 선택 없음 OR 개체 선택 (GetTextFile 미동작) → 거부.
+    #    text 가 있고 sel 도 valid 이면: 정상.
+    #    text 가 있는데 sel 가 None 이면: GetSelectedPos 가 거짓음성 (일부 한/글
+    #       버전·DRM·포커스 상태에서 발생) — 진행하되 warning 로그.
+    if not text:
+        raise NoSelectionError(
+            "선택 영역이 인식되지 않거나 텍스트가 비어있습니다.\n"
+            "• 한/글에서 변환할 본문을 마우스 드래그로 영역 지정 후 단축키를 눌러주세요.\n"
+            "• 단순 캐럿 위치만으로는 동작하지 않습니다.\n"
+            "• 표·이미지 등 개체 선택 상태에서도 동작하지 않습니다."
+        )
+    if sel is None:
+        log("[md-convert] ⚠ GetSelectedPos 거짓음성 — GetTextFile 결과로 진행")
+    log(f"[md-convert] 추출 텍스트 {len(text)}자, {text.count(chr(10)) + 1}줄")
+
+    # 2) 영역 삭제 — 캐럿이 그 자리에 남음. 이어서 cursor 모드로 emit.
+    #    Run("Delete") (action id=102, flag=none): tool2 `마크다운()` 메서드도
+    #    동일하게 `HAction.Run('Delete')` 사용 — 표준 키보드 Delete 키 동작.
+    log("[md-convert] 선택 영역 삭제 (Run='Delete')")
+    hwp.Run("Delete")
+
+    # 3) 파싱 + cursor 모드 변환
+    doc = parse_markdown(text)
+    log(f"[md-convert] parse: 본문 노드 {len(doc.nodes)}개")
+    generate_hwpx_via_com(
+        hwp, doc, out_path="",
+        spec=spec, log=log, mode="cursor",
+        작성부서=None, 작성일=None,
+        is_new_session=False,
+    )
+    log(f"[md-convert] ✔ 변환 완료 ({len(doc.nodes)} 노드)")
+    return len(doc.nodes)
