@@ -45,6 +45,7 @@ _BULLET_MARKERS = frozenset((
     "-",   # U+002D
     "·",   # U+00B7
     "⇨",   # U+21E8 — ConclusionRenderer 결론 박스 (=>)
+    "→",   # U+2192 — 결론 화살표 사용자 변형
 ))
 _ANNOTATION_FIXED = frozenset(("※", "†"))
 
