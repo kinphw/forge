@@ -11,9 +11,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    # 순환 import 회피 — stage_1_formatter.__init__ 가 hwpx_writer 를 import 하고
+    # 순환 import 회피 — formatter.__init__ 가 hwpx_writer 를 import 하고
     # hwpx_writer 가 본 모듈을 import 하므로, runtime 시 templates import 안 함.
-    from ..stage_1_formatter.templates import ReportSpec
+    from ..formatter.templates import ReportSpec
 
 
 class ElementRenderer:

@@ -7,7 +7,7 @@ Forge 메인 GUI.
   3. 3-탭 노트북 (개별 작업 / 기본정보 / 마크다운 입력)
   4. 상단에 한/글 연결 상태 + About(?) 버튼
 
-진입: `python -m ui.app` 또는 `python run.py`
+진입: `python -m forge.ui.app` 또는 `python run.py`
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from forge.hwp_session import (
     is_alive,
     list_hwp_instances,
 )
-from forge.stage_1_formatter.templates import REPORT1_SPEC, ReportSpec
+from forge.formatter.templates import REPORT1_SPEC, ReportSpec
 
 from .hotkeys import GlobalHotkeyManager, MOD_CONTROL, MOD_SHIFT, vk
 from .hwp_picker import pick_hwp_instance

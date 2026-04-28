@@ -20,11 +20,11 @@ from forge.hwp_session import (
     NoExistingHwpError,
     init_com_for_thread,
 )
-from forge.stage_1_formatter import (
+from forge.formatter import (
     NoSelectionError,
     convert_selection_to_hwpx,
 )
-from forge.stage_2_linter import (
+from forge.linter import (
     adjust_kerning_current_paragraph,
     align_current_paragraph,
     fit_current_paragraph_to_one_line,
@@ -712,7 +712,7 @@ class RealtimeTab:
     def _run_kerning_reset_async(self) -> None:
         from tkinter import messagebox
         from forge.com_helpers import set_param
-        from forge.stage_2_linter._range import selection_range
+        from forge.linter._range import selection_range
 
         self._log("")
         self._log("━━━━━━ 자간 0 초기화 시작 ━━━━━━")
@@ -856,9 +856,9 @@ class RealtimeTab:
 
     def _run_combined_async(self) -> None:
         from tkinter import messagebox
-        from forge.stage_2_linter._range import apply_per_paragraph
-        from forge.stage_2_linter.indent_align import _process_paragraph
-        from forge.stage_2_linter.kerning import _adjust_paragraph
+        from forge.linter._range import apply_per_paragraph
+        from forge.linter.indent_align import _process_paragraph
+        from forge.linter.kerning import _adjust_paragraph
 
         self._log("")
         self._log("━━━━━━ 들여쓰기 → 자간 → 들여쓰기 (연속) 시작 ━━━━━━")

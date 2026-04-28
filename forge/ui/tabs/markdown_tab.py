@@ -22,7 +22,7 @@ from tkinter.constants import LEFT, RIGHT, BOTH, X, Y, W, E
 from tkinter.ttk import LabelFrame as TtkLabelFrame, PanedWindow as TtkPanedWindow
 from typing import TYPE_CHECKING
 
-from forge.stage_1_formatter import generate_hwpx_via_com, parse_markdown
+from forge.formatter import generate_hwpx_via_com, parse_markdown
 from forge.hwp_session import (
     MultipleHwpInstancesError,
     NoExistingHwpError,

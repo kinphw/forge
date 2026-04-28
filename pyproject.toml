@@ -29,7 +29,7 @@ dev = [
 ]
 
 [project.scripts]
-sentinel-forge = "ui.app:main"
+sentinel-forge = "forge.ui.app:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -39,7 +39,7 @@ build-backend = "setuptools.build_meta"
 version = {attr = "forge.__version__"}
 
 [tool.setuptools.packages.find]
-include = ["forge*", "ui*"]
+include = ["forge*"]
 exclude = ["tests*", "scripts*", "reference*", "dev-support*"]
 
 [tool.ruff]

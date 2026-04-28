@@ -433,7 +433,7 @@ class AttachmentRenderer(ElementRenderer):
 
 ### 3.1 STAGE 1 (배치 모드 = 마크다운 변환)
 
-`forge/stage_1_formatter/hwpx_writer.py` 가 노드 리스트 순회:
+`forge/formatter/hwpx_writer.py` 가 노드 리스트 순회:
 
 ```python
 def generate_hwpx_via_com(hwp, doc, out_path, spec, log, mode="new"):

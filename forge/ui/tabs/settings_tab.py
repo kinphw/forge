@@ -10,7 +10,7 @@
   - 폰트·크기 (대제목·중제목·소제목·stamp)
   - 본문 글머리 4단계 (□ ○ - ·)
 
-기본값은 forge.stage_1_formatter.templates.REPORT1_SPEC (= 금감원페이지 표준).
+기본값은 forge.formatter.templates.REPORT1_SPEC (= 금감원페이지 표준).
 사용자가 필드를 수정하면 self.state.spec 에 반영되어 탭 ② 변환에 사용됨.
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ from tkinter.constants import LEFT, RIGHT, BOTH, X, W, E
 from tkinter.ttk import LabelFrame as TtkLabelFrame
 from typing import TYPE_CHECKING
 
-from forge.stage_1_formatter.templates import REPORT1_SPEC
+from forge.formatter.templates import REPORT1_SPEC
 from ..scrolled import ScrolledFrame
 
 if TYPE_CHECKING:
@@ -178,7 +178,7 @@ class SettingsTab:
 
     def _apply_to_spec(self) -> None:
         """UI 필드 → state.spec 반영. 다음 변환부터 적용됨."""
-        from forge.stage_1_formatter.templates import PageMargins, BulletStyle
+        from forge.formatter.templates import PageMargins, BulletStyle
         # 메타데이터는 state 가 아니라 markdown_tab 에서 읽음 (front-matter 우선)
         self.state.spec.margins = PageMargins(
             left=float(self.var_margins["left"].get()),

@@ -28,11 +28,11 @@ from ..renderers import (
     SubsectionRenderer,
 )
 from ..renderers import primitives as p
-from ..stage_2_linter import (
+from ..linter import (
     adjust_kerning_to_avoid_word_break,
     align_left_indent,
 )
-from ..stage_2_linter._range import selection_range
+from ..linter._range import selection_range
 from .parser import MarkdownDocument, Node, parse_markdown
 from .templates import REPORT1_SPEC, ReportSpec
 

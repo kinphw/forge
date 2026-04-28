@@ -282,10 +282,11 @@ sentinel-forge/
 │   ├── markdown-spec.md       ← 개조식 md 입력 사양 (Sentinel과의 계약, v1.3)
 │   └── editing-rules.md       ← HWP 편집 규칙 정형화 (작성 예정, tool2 분해 기반)
 │
-├── forge/                     ← ★ 핵심 코어 라이브러리 (UI 없음)
+├── forge/                     ← ★ 단일 src 패키지 — 코어 + UI 모두
 │   ├── __init__.py
 │   ├── com_helpers.py         ← set_param() 등 5단계 패턴 헬퍼
 │   ├── hwp_session.py         ← 활성 한/글 프로세스 attach + 신규 생성 헬퍼
+│   ├── diagnose.py            ← COM attach 진단 스크립트
 │   ├── renderers/             ← ★★ 마크다운 요소별 독립 렌더러 (STAGE 1·3 공유)
 │   │   ├── base.py            ElementRenderer 추상 베이스
 │   │   ├── primitives.py      표·셀·폰트 등 공통 COM 헬퍼 (~30개)
@@ -297,22 +298,27 @@ sentinel-forge/
 │   │   ├── conclusion.py      => 결론 박스
 │   │   ├── note_callout.py    [참고] 박스
 │   │   └── attachment.py      [붙임] 페이지 break
-│   ├── stage_1_formatter/     ← STAGE 1: md 파싱 + 렌더러 dispatcher (COM 통한 hwpx 생성)
-│   ├── stage_2_linter/        ← STAGE 2: 활성 문서 전체 일관성 룰 (COM)
-│   ├── stage_3_polisher/      ← STAGE 3: 단일 룰 (자간·쪽번호 등) + 실시간 박스 삽입
-│   ├── rules/
-│   │   ├── linter/            ← STAGE 2용 일괄 룰 (결정론적)
-│   │   └── polisher/          ← STAGE 3용 단일 COM 룰 (renderers/ 호출 포함)
-│   └── utils/                 ← 한글화·번호 변환 등 순수 함수 유틸
+│   ├── formatter/             ← STAGE 1: md 파싱 + 렌더러 dispatcher (COM 통한 hwpx 생성)
+│   ├── linter/                ← STAGE 2: 활성 문서 일관성 룰 + 실시간 단일 룰 (STAGE 3 흡수)
+│   │                            └ 자간조정·들여쓰기 정렬·어절 끌어올림·자간 0 reset 등
+│   ├── ui/                    ← ★ stdlib Tkinter GUI (단일 진입점)
+│   │   ├── __init__.py
+│   │   ├── app.py             메인 윈도우, 한/글 프로세스 감지·attach
+│   │   ├── hotkeys.py         Win32 RegisterHotKey 시스템 전역 단축키 manager
+│   │   ├── hwp_picker.py      한/글 다중 인스턴스 선택 다이얼로그
+│   │   ├── icon.py            앱 아이콘 (PhotoImage)
+│   │   ├── scrolled.py        자체 ScrolledFrame
+│   │   ├── tooltip.py         hover 툴팁
+│   │   ├── tabs/
+│   │   │   ├── realtime_tab.py     탭 ① 개별 작업 (STAGE 3 룰 + 단축키)
+│   │   │   ├── settings_tab.py     탭 ② 기본정보 (메타데이터·템플릿)
+│   │   │   └── markdown_tab.py     탭 ③ 마크다운 입력 (STAGE 1 변환)
+│   │   └── widgets/           공통 위젯 (md 에디터·로그 패널 등)
+│   └── rules/                 (예정) 룰셋 카탈로그 정형화 위치
 │
-├── ui/                        ← ★ Tkinter GUI (단일 진입점)
-│   ├── __init__.py
-│   ├── app.py                 ← 메인 윈도우, 한/글 프로세스 자동 감지·attach
-│   ├── tabs/
-│   │   ├── settings_tab.py    ← 탭 1: 기본정보 (메타데이터·템플릿 선택)
-│   │   ├── markdown_tab.py    ← 탭 2: 마크다운 입력 + STAGE 1→2→3 실행
-│   │   └── realtime_tab.py    ← 탭 3: 개별 작업 버튼 (STAGE 3 룰 수동)
-│   └── widgets/               ← 공통 위젯 (md 에디터·로그 패널 등)
+│   ※ STAGE 3 polisher 는 별도 패키지가 아니라 linter/ 안에 단일 룰로
+│      흡수됨 (자간·들여쓰기·어절 등은 모두 동일 InitScan 알고리즘 기반).
+│      개념상 stage 분리는 유지하되 코드는 한 곳.
 │
 ├── reference/                  ← ★ 전체 gitignore (개발자 로컬 전용)
 │   │                            FSS 자산·외부 도구·분해 자료 등 본 프로젝트 운영에는
@@ -346,7 +352,7 @@ sentinel-forge/
 | Python 버전 | **3.12** (현재 환경) | tool2 의 3.10 과는 별개 |
 | STAGE 1·2·3 (모든 단계) | `pywin32` 의 `win32com.client` | 한/글 항상 설치 전제 — COM 일원화 |
 | GUI | `tkinter` + **`ttkbootstrap`** | 모던 테마, Tkinter 호환 |
-| 마크다운 파서 | 자체 정규식 (`forge/stage_1_formatter/parser.py`) | spec 단순해서 자체로 충분 |
+| 마크다운 파서 | 자체 정규식 (`forge/formatter/parser.py`) | spec 단순해서 자체로 충분 |
 | YAML front-matter | `pyyaml` | 메타데이터 파싱 |
 | 5단계 COM 패턴 | `forge/com_helpers.py` 의 `set_param()` 1줄 헬퍼 | tool2 wrapper 411개 안 만듦 |
 | 렌더러 8종 | `forge/renderers/` (각 1 클래스) | STAGE 1 + STAGE 3 공유 |
