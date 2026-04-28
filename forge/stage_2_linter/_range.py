@@ -25,30 +25,41 @@ def selection_range(hwp: Any) -> Optional[Tuple[PosT, PosT]]:
     현재 selection 의 시작·끝 위치를 (list, para, pos) 페어로 반환.
     selection 없거나 시작==끝이면 None.
 
-    한/글 GetSelectedPos 반환 형식이 환경에 따라 7-tuple (status 포함) 또는
-    6-tuple 일 수 있어 양쪽 다 수용.
+    ★ 호출 전략 — `GetSelectedPosBySet` (한컴 공식 권고).
+      한컴 공식 (HwpAutomation_2504.txt p.34) 의 GetSelectedPos Remark:
+        "매개변수로 포인터를 사용하므로, 포인터를 사용할 수 없는 언어에서는
+         사용이 불가능 하다. 포인터를 사용하지 않는 언어를 지원하기 위해서
+         ParameterSet을 사용하는 GetSelectedPosBySet()이 존재한다."
+
+      Python 은 그 "포인터 미지원 언어" 에 해당. 무인자 `GetSelectedPos()`
+      호출은 한/글 2010 (버전 80) 등에서 "필수 매개변수입니다" (-2147352561)
+      에러를 raise 하므로 일관 동작 안 함. ListParaPos ParameterSet 두 개를
+      넘기는 BySet 호출이 모든 버전에서 정상 동작.
+
+      사용자 환경(한/글 2010, 모니커 `!HwpObject.80.1`)에서 2026-04-28 검증.
+
+    Returns:
+      (start, end) 페어 또는 None. start/end 는 (list, para, pos) 정수 3-tuple.
     """
     try:
-        r = hwp.GetSelectedPos()
+        sset = hwp.CreateSet("ListParaPos")
+        eset = hwp.CreateSet("ListParaPos")
+        ok = hwp.GetSelectedPosBySet(sset, eset)
     except Exception:
         return None
-    if r is None:
+    if not ok:
         return None
 
     try:
-        if len(r) == 7:
-            status, sl, sp, sx, el, ep, ex = r
-            if status == 0:
-                return None
-        elif len(r) == 6:
-            sl, sp, sx, el, ep, ex = r
-        else:
-            return None
+        start: PosT = (
+            int(sset.Item("List")), int(sset.Item("Para")), int(sset.Item("Pos")),
+        )
+        end: PosT = (
+            int(eset.Item("List")), int(eset.Item("Para")), int(eset.Item("Pos")),
+        )
     except Exception:
         return None
 
-    start: PosT = (int(sl), int(sp), int(sx))
-    end: PosT = (int(el), int(ep), int(ex))
     if start == end:
         return None
     return start, end
