@@ -16,38 +16,36 @@
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import ttk
+from tkinter.constants import LEFT, RIGHT, BOTH, X, W, E
+from tkinter.ttk import LabelFrame as TtkLabelFrame
 from typing import TYPE_CHECKING
 
-import ttkbootstrap as tb
-from tkinter.ttk import LabelFrame as TtkLabelFrame
-from ttkbootstrap.constants import LEFT, RIGHT, BOTH, X, W, E
-from ttkbootstrap.scrolled import ScrolledFrame
-
 from forge.stage_1_formatter.templates import REPORT1_SPEC
+from ..scrolled import ScrolledFrame
 
 if TYPE_CHECKING:
     from ..app import AppState
 
 
 class SettingsTab:
-    def __init__(self, parent: tb.Window, state: "AppState"):
+    def __init__(self, parent: tk.Misc, state: "AppState"):
         self.state = state
         # 외부 frame (Notebook 에 add 되는 것)
-        self.frame = tb.Frame(parent)
+        self.frame = ttk.Frame(parent)
         # 내부에 ScrolledFrame — 탭 콘텐츠가 길어서 스크롤 필요
-        scrolled = ScrolledFrame(self.frame, autohide=True, padding=12)
+        scrolled = ScrolledFrame(self.frame, padding=12)
         scrolled.pack(fill=BOTH, expand=True)
-        # 이 아래의 모든 위젯은 scrolled 를 부모로
-        # 코드 수정 최소화 위해 self.frame → 아래에서 scrolled 로 alias
-        content = scrolled
+        # 자식들은 scrolled.interior 에 추가 (Canvas 안 내부 frame)
+        content = scrolled.interior
 
         # ─── 보고서 템플릿 선택 ───
         tmpl = TtkLabelFrame(content, text="보고서 템플릿", padding=10)
         tmpl.pack(fill=X, pady=(0, 10))
-        tb.Label(tmpl, text="템플릿:").pack(side=LEFT)
+        ttk.Label(tmpl, text="템플릿:").pack(side=LEFT)
         self.var_template = tk.StringVar(value=REPORT1_SPEC.name)
         templates = [REPORT1_SPEC.name]
-        cb = tb.Combobox(tmpl, textvariable=self.var_template, values=templates,
+        cb = ttk.Combobox(tmpl, textvariable=self.var_template, values=templates,
                            state="readonly", width=40)
         cb.pack(side=LEFT, padx=(8, 0))
 
@@ -67,8 +65,8 @@ class SettingsTab:
                    ("아래", "bottom"), ("머리말", "header"), ("꼬리말", "footer")]
         for i, (label, key) in enumerate(labels):
             r, c = divmod(i, 3)
-            tb.Label(margins, text=label, width=8).grid(row=r, column=c*2, sticky=W, pady=3)
-            sb = tb.Spinbox(margins, from_=0, to=50, increment=0.5,
+            ttk.Label(margins, text=label, width=8).grid(row=r, column=c*2, sticky=W, pady=3)
+            sb = ttk.Spinbox(margins, from_=0, to=50, increment=0.5,
                               textvariable=self.var_margins[key], width=8)
             sb.grid(row=r, column=c*2 + 1, sticky=W, padx=(2, 16))
 
@@ -76,11 +74,11 @@ class SettingsTab:
         line = TtkLabelFrame(content, text="줄간격 (%)", padding=10)
         line.pack(fill=X, pady=(0, 10))
         self.var_line_default = tk.IntVar(value=self.state.spec.line_spacing_default)
-        tb.Label(line, text="전체 일괄:").grid(row=0, column=0, sticky=W, padx=(0, 4))
-        tb.Spinbox(line, from_=100, to=300, increment=5,
+        ttk.Label(line, text="전체 일괄:").grid(row=0, column=0, sticky=W, padx=(0, 4))
+        ttk.Spinbox(line, from_=100, to=300, increment=5,
                      textvariable=self.var_line_default, width=8).grid(row=0, column=1, sticky=W)
-        tb.Label(line, text="(본문·제목·stamp 모두 동일 적용)",
-                  bootstyle="secondary").grid(row=0, column=2, sticky=W, padx=(8, 0))
+        ttk.Label(line, text="(본문·제목·stamp 모두 동일 적용)").grid(
+            row=0, column=2, sticky=W, padx=(8, 0))
 
         # ─── 폰트 (대제목·중제목·소제목·본문) ───
         fonts = TtkLabelFrame(content, text="폰트·크기 (보고서 1 기본값)", padding=10)
@@ -93,14 +91,14 @@ class SettingsTab:
         ]
         self.var_fonts: list[tuple[tk.StringVar, tk.DoubleVar]] = []
         for i, (label, font, size) in enumerate(font_rows):
-            tb.Label(fonts, text=label, width=18).grid(row=i, column=0, sticky=W, pady=2)
+            ttk.Label(fonts, text=label, width=18).grid(row=i, column=0, sticky=W, pady=2)
             v_font = tk.StringVar(value=font)
             v_size = tk.DoubleVar(value=size)
-            tb.Entry(fonts, textvariable=v_font, width=20).grid(row=i, column=1, sticky=W, padx=(0, 6))
-            tb.Label(fonts, text="크기:").grid(row=i, column=2, sticky=W)
-            tb.Spinbox(fonts, from_=6, to=72, increment=0.5,
+            ttk.Entry(fonts, textvariable=v_font, width=20).grid(row=i, column=1, sticky=W, padx=(0, 6))
+            ttk.Label(fonts, text="크기:").grid(row=i, column=2, sticky=W)
+            ttk.Spinbox(fonts, from_=6, to=72, increment=0.5,
                          textvariable=v_size, width=6).grid(row=i, column=3, sticky=W, padx=(2, 0))
-            tb.Label(fonts, text="pt", bootstyle="secondary").grid(row=i, column=4, sticky=W, padx=(2, 0))
+            ttk.Label(fonts, text="pt").grid(row=i, column=4, sticky=W, padx=(2, 0))
             self.var_fonts.append((v_font, v_size))
 
         # ─── 본문 글머리 4단계 (□ ○ - ·) ───
@@ -108,11 +106,11 @@ class SettingsTab:
                                  text="본문 글머리 (4단계: □ ○ - ·) — 모두 휴먼명조 15pt, 깊이만 누진",
                                  padding=10)
         bullets.pack(fill=X, pady=(0, 10))
-        tb.Label(bullets, text="md", width=6).grid(row=0, column=0, sticky=W)
-        tb.Label(bullets, text="출력", width=6).grid(row=0, column=1, sticky=W)
-        tb.Label(bullets, text="폰트", width=14).grid(row=0, column=2, sticky=W)
-        tb.Label(bullets, text="크기", width=8).grid(row=0, column=3, sticky=W)
-        tb.Label(bullets, text="내어쓰기", width=10).grid(row=0, column=4, sticky=W)
+        ttk.Label(bullets, text="md", width=6).grid(row=0, column=0, sticky=W)
+        ttk.Label(bullets, text="출력", width=6).grid(row=0, column=1, sticky=W)
+        ttk.Label(bullets, text="폰트", width=14).grid(row=0, column=2, sticky=W)
+        ttk.Label(bullets, text="크기", width=8).grid(row=0, column=3, sticky=W)
+        ttk.Label(bullets, text="내어쓰기", width=10).grid(row=0, column=4, sticky=W)
         self.var_bullets: list[dict] = []
         for i, b in enumerate(self.state.spec.bullets):
             vars_b = {
@@ -122,12 +120,12 @@ class SettingsTab:
                 "size": tk.DoubleVar(value=b.size_pt),
                 "indent": tk.DoubleVar(value=b.indent_pt),
             }
-            tb.Label(bullets, textvariable=vars_b["md"], width=6).grid(row=i+1, column=0, sticky=W)
-            tb.Entry(bullets, textvariable=vars_b["out"], width=6).grid(row=i+1, column=1, sticky=W)
-            tb.Entry(bullets, textvariable=vars_b["font"], width=14).grid(row=i+1, column=2, sticky=W, padx=(0, 4))
-            tb.Spinbox(bullets, from_=6, to=72, increment=0.5,
+            ttk.Label(bullets, textvariable=vars_b["md"], width=6).grid(row=i+1, column=0, sticky=W)
+            ttk.Entry(bullets, textvariable=vars_b["out"], width=6).grid(row=i+1, column=1, sticky=W)
+            ttk.Entry(bullets, textvariable=vars_b["font"], width=14).grid(row=i+1, column=2, sticky=W, padx=(0, 4))
+            ttk.Spinbox(bullets, from_=6, to=72, increment=0.5,
                          textvariable=vars_b["size"], width=8).grid(row=i+1, column=3, sticky=W)
-            tb.Spinbox(bullets, from_=-100, to=100, increment=0.2,
+            ttk.Spinbox(bullets, from_=-100, to=100, increment=0.2,
                          textvariable=vars_b["indent"], width=10).grid(row=i+1, column=4, sticky=W)
             self.var_bullets.append(vars_b)
 
@@ -142,25 +140,23 @@ class SettingsTab:
             "size":   tk.DoubleVar(value=a.size_pt),
             "indent": tk.DoubleVar(value=a.indent_pt),
         }
-        tb.Label(ann, text="폰트:").grid(row=0, column=0, sticky=W, padx=(0, 4))
-        tb.Entry(ann, textvariable=self.var_annotation["font"], width=14).grid(row=0, column=1, sticky=W)
-        tb.Label(ann, text="크기:").grid(row=0, column=2, sticky=W, padx=(16, 4))
-        tb.Spinbox(ann, from_=6, to=72, increment=0.5,
+        ttk.Label(ann, text="폰트:").grid(row=0, column=0, sticky=W, padx=(0, 4))
+        ttk.Entry(ann, textvariable=self.var_annotation["font"], width=14).grid(row=0, column=1, sticky=W)
+        ttk.Label(ann, text="크기:").grid(row=0, column=2, sticky=W, padx=(16, 4))
+        ttk.Spinbox(ann, from_=6, to=72, increment=0.5,
                      textvariable=self.var_annotation["size"], width=8).grid(row=0, column=3, sticky=W)
-        tb.Label(ann, text="pt").grid(row=0, column=4, sticky=W, padx=(2, 0))
-        tb.Label(ann, text="내어쓰기:").grid(row=0, column=5, sticky=W, padx=(16, 4))
-        tb.Spinbox(ann, from_=-100, to=100, increment=0.2,
+        ttk.Label(ann, text="pt").grid(row=0, column=4, sticky=W, padx=(2, 0))
+        ttk.Label(ann, text="내어쓰기:").grid(row=0, column=5, sticky=W, padx=(16, 4))
+        ttk.Spinbox(ann, from_=-100, to=100, increment=0.2,
                      textvariable=self.var_annotation["indent"], width=10).grid(row=0, column=6, sticky=W)
 
         # ─── 액션 버튼 ───
-        actions = tb.Frame(content)
+        actions = ttk.Frame(content)
         actions.pack(fill=X, pady=(8, 0))
-        tb.Button(actions, text="기본값으로 초기화 (보고서 1 spec)",
-                    command=self._reset_to_default,
-                    bootstyle="secondary-outline").pack(side=LEFT)
-        tb.Button(actions, text="설정 적용",
-                    command=self._apply_to_spec,
-                    bootstyle="primary").pack(side=RIGHT)
+        ttk.Button(actions, text="기본값으로 초기화 (보고서 1 spec)",
+                    command=self._reset_to_default).pack(side=LEFT)
+        ttk.Button(actions, text="설정 적용",
+                    command=self._apply_to_spec).pack(side=RIGHT)
 
     # ------------------------------------------------------------ actions
     def _reset_to_default(self) -> None:

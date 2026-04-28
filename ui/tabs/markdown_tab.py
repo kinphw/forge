@@ -15,15 +15,17 @@ from __future__ import annotations
 import threading
 import tkinter as tk
 from datetime import datetime
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
+from tkinter.constants import LEFT, RIGHT, BOTH, X, Y, W, E
+from tkinter.ttk import LabelFrame as TtkLabelFrame, PanedWindow as TtkPanedWindow
 from typing import TYPE_CHECKING
 
-import ttkbootstrap as tb
-from tkinter.ttk import LabelFrame as TtkLabelFrame, PanedWindow as TtkPanedWindow
-from ttkbootstrap.constants import LEFT, RIGHT, BOTH, X, Y, W, E
-
 from forge.stage_1_formatter import generate_hwpx_via_com, parse_markdown
-from forge.hwp_session import init_com_for_thread
+from forge.hwp_session import (
+    MultipleHwpInstancesError,
+    NoExistingHwpError,
+    init_com_for_thread,
+)
 
 if TYPE_CHECKING:
     from ..app import AppState, ForgeApp
@@ -32,27 +34,25 @@ if TYPE_CHECKING:
 SAMPLE_MD = """\
 ---
 보고서명: 샘플 보고서 (Forge 테스트)
-작성부서: 디지털전환혁신팀
-작성일: 2026-04-26
 ---
 
 1. 현황
 가. 개요
-□ (배경) Sentinel-Forge GUI 첫 동작 검증
- ○ 탭 ② 마크다운 → hwpx 변환 경로 확인
+□ (배경) Forge GUI 첫 __동작__ 검증
+ ○ 탭 ② 마크다운 → hwpx __변환 경로__ 확인
   - 한/글 COM 인스턴스 attach
   - 본문 노드별 텍스트 삽입
    · 자동 BreakPara
 
 나. 진행 상황
-□ (현재) 1차 구현 완료
+□ (현재) 1차 __구현__ 완료
 
 [참고]
 이 hwpx 는 텍스트 + 기본 폰트만 적용된 초안입니다.
 박스·색상·테두리 등 시각 디테일은 후속 STAGE 2 Linter 가 처리합니다.
 
 2. 향후 계획
-□ (즉시) STAGE 2 XML 룰 카탈로그 작성
+□ (즉시) STAGE 2 XML 룰 __카탈로그__ 작성
 □ (장기) STAGE 3 폴리셔 통합
 
 => 첫 end-to-end 동작 확인 시 미니멀 성공
@@ -60,55 +60,52 @@ SAMPLE_MD = """\
 
 
 class MarkdownTab:
-    def __init__(self, parent: tb.Window, app: "ForgeApp"):
+    def __init__(self, parent: tk.Misc, app: "ForgeApp"):
         self.app = app
         self.state = app.state
-        self.frame = tb.Frame(parent, padding=12)
+        self.frame = ttk.Frame(parent, padding=12)
 
         # ─── 상단 툴바 ───
-        toolbar = tb.Frame(self.frame)
+        toolbar = ttk.Frame(self.frame)
         toolbar.pack(fill=X, pady=(0, 8))
 
-        tb.Button(toolbar, text="🧪 샘플 채우기", command=self._fill_sample,
-                    bootstyle="info-outline").pack(side=LEFT, padx=(0, 4))
-        tb.Button(toolbar, text="🧹 비우기", command=self._clear,
-                    bootstyle="warning-outline").pack(side=LEFT, padx=(0, 4))
+        ttk.Button(toolbar, text="🧪 샘플 채우기", command=self._fill_sample
+                    ).pack(side=LEFT, padx=(0, 4))
+        ttk.Button(toolbar, text="🧹 비우기", command=self._clear
+                    ).pack(side=LEFT, padx=(0, 4))
 
-        tb.Separator(toolbar, orient="vertical").pack(side=LEFT, fill=Y, padx=8)
+        ttk.Separator(toolbar, orient="vertical").pack(side=LEFT, fill=Y, padx=8)
 
         # 출력 모드 라디오
         self.var_output_mode = tk.StringVar(value="new")  # "new" | "cursor"
-        tb.Radiobutton(
+        ttk.Radiobutton(
             toolbar, text="새 hwpx 파일에 생성",
             variable=self.var_output_mode, value="new",
-            bootstyle="info-toolbutton",
         ).pack(side=LEFT, padx=(0, 4))
-        tb.Radiobutton(
+        ttk.Radiobutton(
             toolbar, text="현재 hwpx 커서에 삽입",
             variable=self.var_output_mode, value="cursor",
-            bootstyle="info-toolbutton",
         ).pack(side=LEFT, padx=(0, 8))
 
-        self.btn_convert = tb.Button(
+        self.btn_convert = ttk.Button(
             toolbar, text="▶ hwpx 생성 (변환)",
-            command=self._on_convert, bootstyle="primary",
+            command=self._on_convert,
         )
         self.btn_convert.pack(side=LEFT)
         # 항상 활성 — 클릭 시 한/글 자동 attach (lazy)
 
         # ─── 메타데이터 입력 (spec v1.4: 작성부서·작성일은 markdown 이 아닌 UI 영역) ───
-        meta_bar = tb.Frame(self.frame)
+        meta_bar = ttk.Frame(self.frame)
         meta_bar.pack(fill=X, pady=(0, 8))
 
-        tb.Label(meta_bar, text="작성부서:", width=10).pack(side=LEFT)
+        ttk.Label(meta_bar, text="작성부서:", width=10).pack(side=LEFT)
         self.var_dept = tk.StringVar(value="")
-        tb.Entry(meta_bar, textvariable=self.var_dept, width=30).pack(side=LEFT, padx=(0, 12))
+        ttk.Entry(meta_bar, textvariable=self.var_dept, width=30).pack(side=LEFT, padx=(0, 12))
 
-        tb.Label(meta_bar, text="작성일:", width=8).pack(side=LEFT)
+        ttk.Label(meta_bar, text="작성일:", width=8).pack(side=LEFT)
         self.var_date = tk.StringVar(value=datetime.today().strftime("%Y-%m-%d"))
-        tb.Entry(meta_bar, textvariable=self.var_date, width=14).pack(side=LEFT, padx=(0, 8))
-        tb.Label(meta_bar, text="(YYYY-MM-DD, 비우면 변환 시 오늘)",
-                  bootstyle="secondary").pack(side=LEFT)
+        ttk.Entry(meta_bar, textvariable=self.var_date, width=14).pack(side=LEFT, padx=(0, 8))
+        ttk.Label(meta_bar, text="(YYYY-MM-DD, 비우면 변환 시 오늘)").pack(side=LEFT)
 
         # ─── 좌·우 분할 ───
         paned = TtkPanedWindow(self.frame, orient="horizontal")
@@ -119,8 +116,8 @@ class MarkdownTab:
         paned.add(left, weight=3)
 
         self.text = tk.Text(left, wrap="none", font=("Consolas", 11), undo=True)
-        scroll_y = tb.Scrollbar(left, orient="vertical", command=self.text.yview)
-        scroll_x = tb.Scrollbar(left, orient="horizontal", command=self.text.xview)
+        scroll_y = ttk.Scrollbar(left, orient="vertical", command=self.text.yview)
+        scroll_x = ttk.Scrollbar(left, orient="horizontal", command=self.text.xview)
         self.text.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
         self.text.grid(row=0, column=0, sticky="nsew")
         scroll_y.grid(row=0, column=1, sticky="ns")
@@ -134,7 +131,7 @@ class MarkdownTab:
 
         self.log = tk.Text(right, wrap="word", font=("Consolas", 10),
                            state="disabled", height=20)
-        log_scroll = tb.Scrollbar(right, orient="vertical", command=self.log.yview)
+        log_scroll = ttk.Scrollbar(right, orient="vertical", command=self.log.yview)
         self.log.configure(yscrollcommand=log_scroll.set)
         self.log.pack(side=LEFT, fill=BOTH, expand=True)
         log_scroll.pack(side=RIGHT, fill=Y)
@@ -222,16 +219,28 @@ class MarkdownTab:
                 is_new_session=session.is_new,
             )
 
+            # ★ 성공 시 msgbox 미표시 — 작업 흐름 방해 회피.
+            # 결과는 로그 패널 + status bar 로 노출 (실패/경고는 여전히 msgbox 로 표면화).
             self._log("─" * 50)
             if mode == "new":
                 self._log(f"✔ 새 hwpx 파일: {result}")
-                self.frame.after(0, lambda r=result: messagebox.showinfo(
-                    "완료", f"hwpx 저장 완료:\n{r}"))
+                self.app._set_status(f"✔ 변환 완료 — {result}")
             else:
-                self._log(f"✔ 활성 문서 커서 위치에 삽입 완료")
-                self.frame.after(0, lambda: messagebox.showinfo(
-                    "완료", "활성 한/글 문서 커서 위치에 삽입 완료.\n"
-                              "저장은 한/글에서 직접 하세요."))
+                self._log("✔ 활성 문서 커서 위치에 삽입 완료 (저장은 한/글에서 직접)")
+                self.app._set_status("✔ 활성 문서 커서 위치에 삽입 완료")
+        except MultipleHwpInstancesError as e:
+            self._log(f"⚠ 한/글 인스턴스 {len(e.instances)}개 — picker 표시")
+            self.app.prompt_pick_from_worker(e.instances)
+        except NoExistingHwpError as e:
+            self._log(f"✘ {e}")
+            self.frame.after(0, lambda: messagebox.showwarning(
+                "한/글 미실행",
+                "떠 있는 한/글 인스턴스가 없습니다.\n\n"
+                "한/글을 직접 실행하신 후 (빈 새 문서 또는 임의의 hwpx 파일)\n"
+                "다시 변환 버튼을 눌러주세요.\n\n"
+                "이미 한/글이 떠 있는데 이 메시지가 나온다면 상단 '한/글 선택' "
+                "버튼으로 인스턴스를 골라주세요.",
+            ))
         except Exception as e:
             self._log(f"✘ 오류: {e}")
             import traceback
