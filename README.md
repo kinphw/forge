@@ -1,14 +1,16 @@
-# Sentinel-Forge
+# forge
 
 ## Ver
 
-0.0.1 (260426)
+0.2.0 (260428)
 
 ## 기능
 
-개조식 markdown을 입력받아 한/글 보고서(.hwpx 신규 산출 / .hwp 호환 입력)로 변환·폴리싱하는 **LLM-free HWP 툴킷**.
+1. 개조식 markdown을 입력받아 한/글 보고서(.hwpx 신규 산출 / .hwp 호환 입력)로 변환
 
-자매 프로젝트 [Sentinel](../sentinel)이 산출한 개조식 md, 또는 사람이 직접 작성한 md를 동일 파이프라인으로 처리. md 사양 외에는 Sentinel과 코드 의존 없음.
+- 개조식 md, 또는 사람이 직접 작성한 md를 동일 파이프라인으로 처리. md 사양 외에는 Sentinel과 코드 의존 없음.
+
+2. 실시간 HWPX COM API 조작을 통해 문서편집 효율화 
 
 ## 사용 모드 (2가지)
 

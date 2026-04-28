@@ -1,5 +1,5 @@
 """
-Sentinel-Forge GUI 진입점.
+Forge GUI 진입점.
 
 실행:
     python run.py
