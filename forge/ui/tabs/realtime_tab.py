@@ -91,6 +91,16 @@ class RealtimeTab:
             command=self._toggle_individual_buttons,
         ).pack(side=LEFT, padx=(20, 0))
 
+        # 캐럿 글자모양 진단 — 현재 한/글 캐럿 위치의 CharShape 를 readback.
+        # 한/글이 face name 매칭에 실패하면 FaceNameHangul 이 빈 칸으로 나오는데
+        # ("휴먼명조" 같은 이름 사고), 이 버튼으로 즉시 확인 가능. 폰트 적용
+        # 직후에 호출 → 한/글이 받아들인 정확한 face name 노출.
+        ttk.Button(
+            top_meta, text="🔬 캐럿 글자모양",
+            command=self._inspect_caret_charshape,
+            width=16,
+        ).pack(side=LEFT, padx=(20, 0))
+
         # 폰트 검색 — 시스템에 설치된 폰트 목록을 정규식 필터링해 로그에 표시.
         # 한/글 미경유 (tkinter.font.families). 폰트 이름 오타 진단용.
         ttk.Label(top_meta, text="폰트 검색:").pack(side=LEFT, padx=(20, 4))
@@ -531,6 +541,76 @@ class RealtimeTab:
         else:
             self.btn_indent_only.grid_remove()
             self.btn_kerning_only.grid_remove()
+
+    # ------------------------------------------------------------ 캐럿 글자모양
+    def _inspect_caret_charshape(self) -> None:
+        """현재 한/글 캐럿/선택영역의 CharShape 를 readback 해 로그에 표시.
+
+        용도: 폰트 적용 직후 한/글이 받아들인 정확한 face name 확인.
+        한/글이 face name 매칭에 실패하면 FaceNameHangul 이 빈 칸 — 즉시 감지.
+        백그라운드 thread (COM init + ensure_hwp) — UI 멈춤 방지.
+        """
+        self.app._set_status("[inspect] 현재 캐럿 글자모양 조회 중...")
+        threading.Thread(
+            target=self._inspect_caret_charshape_async, daemon=True,
+        ).start()
+
+    def _inspect_caret_charshape_async(self) -> None:
+        self._log("")
+        self._log("━━━━━━ 현재 캐럿 글자모양 ━━━━━━")
+        try:
+            init_com_for_thread()
+            try:
+                session = self.app.ensure_hwp()
+            except Exception as e:
+                self._log(f"[hwp] attach 실패: {e}")
+                self.app._set_status(f"✘ 조회 실패: {e}")
+                return
+            hwp = session.hwp
+            # GetDefault 는 현재 캐럿/선택의 effective CharShape 를 HSet 에 채움.
+            # 우리가 set_param 으로 적용한 직후라면 그 값이 보임. 빈 영역이면
+            # 캐럿 위치의 다음 입력 글자에 적용될 default.
+            hwp.HAction.GetDefault("CharShape", hwp.HParameterSet.HCharShape.HSet)
+            cs = hwp.HParameterSet.HCharShape
+
+            height = int(cs.Height or 0)
+            size_pt = height / 100.0 if height else 0.0
+            face_h = str(cs.FaceNameHangul or "")
+            face_l = str(cs.FaceNameLatin or "")
+            face_hj = str(cs.FaceNameHanja or "")
+            face_j = str(cs.FaceNameJapanese or "")
+            face_o = str(cs.FaceNameOther or "")
+            face_s = str(cs.FaceNameSymbol or "")
+            face_u = str(cs.FaceNameUser or "")
+            ft_h = int(cs.FontTypeHangul or 0)
+            bold = bool(int(cs.Bold or 0))
+            italic = bool(int(cs.Italic or 0))
+            ratio_h = int(cs.RatioHangul or 100)
+            spacing_h = int(cs.SpacingHangul or 0)
+
+            ft_label = {0: "don't care", 1: "TTF", 2: "HFT"}.get(ft_h, f"?({ft_h})")
+            self._log(f"  크기      : {size_pt:.1f} pt  (Height={height})")
+            self._log(f"  Bold/Italic: {bold} / {italic}")
+            self._log(f"  자간/장평  : {spacing_h}% / {ratio_h}%")
+            self._log(f"  FontType (한글)  : {ft_h} ({ft_label})")
+            self._log(f"  FaceNameHangul   : {face_h!r}")
+            self._log(f"  FaceNameLatin    : {face_l!r}")
+            self._log(f"  FaceNameHanja    : {face_hj!r}")
+            self._log(f"  FaceNameJapanese : {face_j!r}")
+            self._log(f"  FaceNameOther    : {face_o!r}")
+            self._log(f"  FaceNameSymbol   : {face_s!r}")
+            self._log(f"  FaceNameUser     : {face_u!r}")
+            if not face_h:
+                self._log(
+                    "  ⚠ FaceNameHangul 이 비어있음 — 한/글이 face name 매칭에"
+                    " 실패한 상태. 폰트가 시스템에 미설치이거나 이름 불일치."
+                )
+            self.app._set_status(
+                f"✔ 캐럿 글자모양: {face_h or '(빈 face)'} {size_pt:.1f}pt"
+            )
+        except Exception as e:
+            self._log(f"[ERROR] {type(e).__name__}: {e}")
+            self.app._set_status(f"✘ 조회 실패: {e}")
 
     # ------------------------------------------------------------ 폰트 검색
     def _search_installed_fonts(self) -> None:
