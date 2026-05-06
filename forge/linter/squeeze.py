@@ -33,7 +33,7 @@ from typing import Any, Callable, Optional, Tuple
 from .indent_align import (
     _block_char,
     _is_body_word,
-    _is_bullet_or_annotation_marker,
+    _is_skip_marker,
 )
 
 LogFn = Optional[Callable[[str], None]]
@@ -46,17 +46,21 @@ def _noop_log(msg: str) -> None:
 def _find_body_start_pos(hwp: Any, log: LogFn) -> Optional[Tuple[int, int, int]]:
     """
     현재 캐럿이 위치한 문단의 본문 시작 위치를 찾아 GetPos 결과 반환.
-    bullet/annotation marker 아니면 None.
+    빈 문단이면 None, 그 외에는 항상 위치 반환.
 
     align_left_indent._process_paragraph 의 "본문 워드 발견" 단계와 동일
     패턴 — FWS 빈 워드 자동 건너뜀 + 본문 워드 발견 시 MoveWordBegin 위치.
+
+    ★ 정책: 마커 유무 관계없이 동작 — bullet/annotation/section/subsection
+      마커가 있으면 그 다음 본문 워드에, 마커 없는 prose 면 첫 워드(=ParaBegin)
+      에 자간 조정 영역의 시작점을 잡음.
     """
     log = log or _noop_log
 
     hwp.Run("MoveParaBegin")
 
-    # 1. 첫 텍스트 워드 marker 검증
-    is_marker = False
+    # 1. 첫 텍스트 워드 — 빈 문단 판정용 (실제 마커 검증은 body 검색 단계에서 처리)
+    has_text = False
     for trial in range(10):
         hwp.Run("MoveSelNextWord")
         c_raw = _block_char(hwp)
@@ -65,15 +69,17 @@ def _find_body_start_pos(hwp: Any, log: LogFn) -> Optional[Tuple[int, int, int]]
         if stripped == "":
             hwp.Run("Cancel")
             continue
-        is_marker = _is_bullet_or_annotation_marker(stripped)
-        log(f"  [first-text] word={stripped!r} is_marker={is_marker}")
+        has_text = True
+        log(f"  [first-text] word={stripped!r} is_marker={_is_skip_marker(stripped)}")
         hwp.Run("Cancel")
         break
 
-    if not is_marker:
+    if not has_text:
+        log("  [body-start] 빈 문단 — skip")
         return None
 
-    # 2. 본문 워드 발견까지 점프
+    # 2. 본문 워드 발견까지 점프 — _is_body_word 가 마커(섹션 포함) 자동 배제.
+    #    마커 없는 prose 면 첫 워드가 곧 body 워드 → 한 번에 found.
     hwp.Run("MoveParaBegin")
     hwp.Run("MoveSelNextWord")
     c_raw = _block_char(hwp)
@@ -142,10 +148,10 @@ def fit_current_paragraph_to_one_line(
     log = log or _noop_log
     log("[fit_to_one_line] 시작")
 
-    # 1. 본문 시작 위치
+    # 1. 본문 시작 위치 (빈 문단이면 None)
     body_start = _find_body_start_pos(hwp, log)
     if body_start is None:
-        log("[fit_to_one_line] marker 없는 문단 — skip")
+        log("[fit_to_one_line] 빈 문단 — skip")
         return
 
     # 2. 문단 끝

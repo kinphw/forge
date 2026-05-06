@@ -77,10 +77,13 @@ def apply_per_paragraph(
     fn 의 contract: 한 문단 처리 후 캐럿이 다음 문단 시작 부근으로 이동
     (indent_align._process_paragraph / kerning._adjust_paragraph 모두 충족).
 
-    selection 종료 조건:
-      - 캐럿이 끝 문단을 넘으면 stop
-      - 다른 list (= 표 셀 변경 등) 진입 시 stop — 같은 list 내만 처리
-      - 진행 멈춤 (GetPos 동일 반복) 시 stop
+    분기:
+      - selection 의 start.list == end.list (같은 본문 / 같은 셀 내부):
+          start → end 까지 paragraph 순서대로 fn 호출.
+      - start.list != end.list (★ 표 셀 block selection 등 다중 list):
+          start.list ~ end.list 의 각 list 마다 SetPos(list, 0, 0) 으로 진입
+          후 그 list 의 모든 문단 순회. HWP 표 셀은 보통 sequential list ID
+          라 range(start, end+1) 로 빠진 셀 없이 커버됨.
     """
     log = log or _noop_log
 
@@ -93,10 +96,24 @@ def apply_per_paragraph(
     start, end = sel
     log(f"  [range] selection: {start} → {end}")
 
-    # selection 해제 후 시작 위치로 이동
+    # selection 해제
     hwp.Run("Cancel")
-    hwp.SetPos(*start)
 
+    if start[0] == end[0]:
+        _apply_within_list(hwp, fn, log, start, end)
+    else:
+        _apply_across_lists(hwp, fn, log, start[0], end[0])
+
+
+def _apply_within_list(
+    hwp: Any,
+    fn: Callable[[Any, LogFn], None],
+    log: LogFn,
+    start: PosT,
+    end: PosT,
+) -> None:
+    """selection 이 단일 list (본문 또는 셀 1개) 내에 있을 때 — 기존 로직."""
+    hwp.SetPos(*start)
     end_list, end_para = end[0], end[1]
     max_iter = 1000
     iters = 0
@@ -123,4 +140,49 @@ def apply_per_paragraph(
             break
         iters += 1
 
-    log(f"  [range] 처리된 문단: {processed} 개")
+    log(f"  [range] 처리된 문단: {processed} 개 (단일 list)")
+
+
+def _apply_across_lists(
+    hwp: Any,
+    fn: Callable[[Any, LogFn], None],
+    log: LogFn,
+    start_list: int,
+    end_list: int,
+) -> None:
+    """selection 이 여러 list 에 걸쳐 있을 때 — 각 list 의 모든 문단 순회.
+
+    표 block selection 의 핵심 케이스. HWP 표 셀은 보통 sequential list ID 라
+    range(start_list, end_list+1) 가 빠진 셀 없이 커버. 도중에 SetPos 가 실패
+    하거나 fallback (cur[0]==0) 하는 list 는 건너뜀.
+    """
+    log(f"  [range] 다중 list ({start_list} ~ {end_list}) — 각 list 모든 문단 순회")
+    total = 0
+    visited = 0
+    for list_id in range(start_list, end_list + 1):
+        try:
+            hwp.SetPos(list_id, 0, 0)
+        except Exception as e:
+            log(f"  [list#{list_id}] SetPos 실패 ({e}) — skip")
+            continue
+        cur = hwp.GetPos()
+        if cur is None or cur[0] != list_id:
+            log(f"  [list#{list_id}] 도달 실패 (got {cur!r}) — skip")
+            continue
+        visited += 1
+        log(f"  [list#{list_id}] 진입, 문단 순회 시작")
+        inner_iters = 0
+        while inner_iters < 1000:
+            p_prev = hwp.GetPos()
+            fn(hwp, log)
+            p_new = hwp.GetPos()
+            if p_new is None or p_new[0] != list_id:
+                log(f"  [list#{list_id}] list 이탈 ({p_new!r}) — 다음 list")
+                break
+            if p_new == p_prev:
+                log(f"  [list#{list_id}] 진행 멈춤 — 다음 list")
+                break
+            inner_iters += 1
+            total += 1
+    log(f"  [range] 다중 list 처리 완료: 방문 {visited}/{end_list - start_list + 1} list, "
+        f"총 {total} 문단")

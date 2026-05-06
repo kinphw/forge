@@ -49,6 +49,11 @@ _BULLET_MARKERS = frozenset((
 ))
 _ANNOTATION_FIXED = frozenset(("※", "†"))
 
+# 섹션·소제목 마커 prefix 문자집합. word 가 prefix + "." 형태면 마커.
+# 예: "1." "10." "가." "나." "Ⅰ." "Ⅱ."
+_SECTION_HANGUL = frozenset("가나다라마바사아자차카타파하")
+_SECTION_ROMAN = frozenset("ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫ")
+
 
 def _block_char(hwp: Any) -> str:
     """
@@ -92,19 +97,52 @@ def _is_bullet_or_annotation_marker(word: str) -> bool:
     return False
 
 
+def _is_section_marker(word: str) -> bool:
+    """섹션·소제목 마커 (`1.`, `가.`, `Ⅰ.` 등) 인지.
+
+    형식: `<prefix>.` 에서 prefix 가 다음 중 하나
+      - 1자리 이상 숫자 (1./2./.../10./...)
+      - 1자 한글 가~하 (가./나./다./...)
+      - 1자 로마자 Ⅰ~Ⅻ (Ⅰ./Ⅱ./...)
+    """
+    if not word or not word.endswith("."):
+        return False
+    prefix = word[:-1]
+    if not prefix:
+        return False
+    if prefix.isdigit():
+        return True
+    if all(ch in _SECTION_HANGUL for ch in prefix):
+        return True
+    if all(ch in _SECTION_ROMAN for ch in prefix):
+        return True
+    return False
+
+
+def _is_skip_marker(word: str) -> bool:
+    """body 검색 시 건너뛸 마커 — bullet/annotation/section/subsection 통합."""
+    return (
+        _is_bullet_or_annotation_marker(word)
+        or _is_section_marker(word)
+    )
+
+
 def _is_body_word(c: str) -> bool:
     """
-    본문 워드 판정 — 한 글자라도 alphabetic (한글 자모/음절·라틴 등) 이면 True.
+    본문 워드 판정 — alphabetic char 포함이고 섹션 마커(`가.`/`Ⅰ.`) 아닌 경우.
 
     원래 tool1 은 "alpha 포함 + '.' 없음" 이었으나 그 `.` 배제 로직이 너무 공격적.
     한국어 prose 의 `반갑니다.`, `'26.4.19.자로`, `Co.` 등 자연스러운 끝점·중간점이
     들어간 첫 본문 워드를 skip 하게 되어, 다음 워드 (예: `이`/`것은`) 에 indent 가
     설정 → 두번째 줄부터 본문 첫 글자보다 한참 오른쪽으로 정렬되는 버그.
 
-    원래 의도였던 "번호 토큰 (`1.`, `(1)`, `①`) skip" 은 alpha 가 없으므로 본 함수가
-    자연스럽게 False 를 반환 — `.` 특별 처리 없어도 동작. 반대로 alpha 가 있으면
-    번호가 아니라 본문이므로 body 로 인정.
+    번호 토큰 `1.`/`①` 은 alpha 가 없어 자연스럽게 False. `가.`/`Ⅰ.` 는 alpha 가
+    있어 그냥 두면 body 로 잡히므로 _is_section_marker 로 명시 배제.
     """
+    if not c:
+        return False
+    if _is_section_marker(c):
+        return False
     return any(ch.isalpha() for ch in c)
 
 
@@ -148,32 +186,33 @@ def _process_paragraph(hwp: Any, log: LogFn = None) -> None:
     log(f"  [para] full={full!r}")
 
     # 첫 텍스트 워드 검색 — FWS 만 든 빈 워드(GetText 가 '' 반환) 들을 건너뛰며
-    # 처음으로 만나는 진짜 텍스트 워드를 찾아 marker 검증.
-    is_marker = False
+    # 처음으로 만나는 진짜 텍스트 워드 확인 (진단 로그용).
+    # ★ 정책: 마커가 아니어도 alignment 진행 — markerless 본문도 첫 body 워드에
+    #   IndentAtCaret 을 호출해 자연스럽게 동작 (column 0 prose 면 사실상 no-op,
+    #   `1. 본문` `가. 본문` 등 섹션 패턴이면 body 워드 위치로 indent 정렬).
     first_text_word: Optional[str] = None
+    is_marker_kind = False  # 진단 로그용
     for trial in range(10):
         hwp.Run("MoveSelNextWord")
         c_raw = _block_char(hwp)
         stripped = c_raw.strip()
         log(f"  [skip-search#{trial}] raw={c_raw!r} stripped={stripped!r}")
         if stripped == "":
-            # FWS / 컨트롤 only — 다음 워드 시도
             hwp.Run("Cancel")
             continue
         first_text_word = stripped
-        is_marker = _is_bullet_or_annotation_marker(stripped)
-        log(f"  [first-text] word={stripped!r} is_marker={is_marker}")
+        is_marker_kind = _is_skip_marker(stripped)
+        log(f"  [first-text] word={stripped!r} is_marker={is_marker_kind}")
         hwp.Run("Cancel")
         break
     else:
-        log("  → 10 시도 후 텍스트 워드 못 찾음")
-
-    if not is_marker:
-        log("  → marker 아님 (또는 빈 문단), skip")
+        log("  → 10 시도 후 텍스트 워드 못 찾음 — 빈 문단 skip")
         hwp.Run("MoveNextParaBegin")
         return
 
     # tool1 본문 검색 — 빈 워드(FWS only, GetText '' 반환) 도 자동 건너뜀.
+    # _is_body_word 가 (alpha 포함) AND (섹션 마커 아님) 조건이라 1./가./Ⅰ. 등
+    # 섹션 마커도 자연스럽게 skip → 다음 워드(진짜 본문) 에서 indent 잡힘.
     # `if not c_raw: break` 제거 — 빈 워드는 _is_body_word("")=False 로
     # 처리되어 다음 iter 진행. 무한 루프는 max_iter 30 으로 제한.
     # 진행 멈춤(MoveSelNextWord 가 캐럿 못 옮기는 케이스) 은 GetPos 비교로 감지.
