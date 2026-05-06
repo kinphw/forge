@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import ttk
 from tkinter.constants import LEFT, RIGHT, BOTH, X, W, E
 from tkinter.ttk import LabelFrame as TtkLabelFrame
@@ -28,6 +29,19 @@ if TYPE_CHECKING:
     from ..app import AppState
 
 
+def _installed_fonts(root: tk.Misc) -> list[str]:
+    """설치된 폰트 face name 목록 (정렬·중복 제거).
+
+    tkinter.font.families() — GDI/DirectWrite enum 결과로 한/글 폰트
+    드롭다운과 사실상 동일. Combobox 의 values 로 사용해 사용자가 정확한
+    이름을 직접 선택하도록 한다.
+    """
+    try:
+        return sorted(set(tkfont.families(root)))
+    except Exception:
+        return []
+
+
 class SettingsTab:
     def __init__(self, parent: tk.Misc, state: "AppState"):
         self.state = state
@@ -38,6 +52,10 @@ class SettingsTab:
         scrolled.pack(fill=BOTH, expand=True)
         # 자식들은 scrolled.interior 에 추가 (Canvas 안 내부 frame)
         content = scrolled.interior
+
+        # 설치 폰트 enum (모든 폰트 Combobox 가 공유) — Tk root 이 살아있는 시점
+        # 에서 한 번만 호출해 캐시.
+        self._fonts = _installed_fonts(parent)
 
         # ─── 보고서 템플릿 선택 ───
         tmpl = TtkLabelFrame(content, text="보고서 템플릿", padding=10)
@@ -94,7 +112,8 @@ class SettingsTab:
             ttk.Label(fonts, text=label, width=18).grid(row=i, column=0, sticky=W, pady=2)
             v_font = tk.StringVar(value=font)
             v_size = tk.DoubleVar(value=size)
-            ttk.Entry(fonts, textvariable=v_font, width=20).grid(row=i, column=1, sticky=W, padx=(0, 6))
+            ttk.Combobox(fonts, textvariable=v_font, values=self._fonts,
+                          width=22).grid(row=i, column=1, sticky=W, padx=(0, 6))
             ttk.Label(fonts, text="크기:").grid(row=i, column=2, sticky=W)
             ttk.Spinbox(fonts, from_=6, to=72, increment=0.5,
                          textvariable=v_size, width=6).grid(row=i, column=3, sticky=W, padx=(2, 0))
@@ -103,7 +122,7 @@ class SettingsTab:
 
         # ─── 본문 글머리 4단계 (□ ○ - ·) ───
         bullets = TtkLabelFrame(content,
-                                 text="본문 글머리 (4단계: □ ○ - ·) — 모두 휴먼명조 15pt, 깊이만 누진",
+                                 text="본문 글머리 (4단계: □ ○ - ·) — 모두 TH휴먼명조 15pt, 깊이만 누진",
                                  padding=10)
         bullets.pack(fill=X, pady=(0, 10))
         ttk.Label(bullets, text="md", width=6).grid(row=0, column=0, sticky=W)
@@ -122,7 +141,8 @@ class SettingsTab:
             }
             ttk.Label(bullets, textvariable=vars_b["md"], width=6).grid(row=i+1, column=0, sticky=W)
             ttk.Entry(bullets, textvariable=vars_b["out"], width=6).grid(row=i+1, column=1, sticky=W)
-            ttk.Entry(bullets, textvariable=vars_b["font"], width=14).grid(row=i+1, column=2, sticky=W, padx=(0, 4))
+            ttk.Combobox(bullets, textvariable=vars_b["font"], values=self._fonts,
+                          width=18).grid(row=i+1, column=2, sticky=W, padx=(0, 4))
             ttk.Spinbox(bullets, from_=6, to=72, increment=0.5,
                          textvariable=vars_b["size"], width=8).grid(row=i+1, column=3, sticky=W)
             ttk.Spinbox(bullets, from_=-100, to=100, increment=0.2,
@@ -141,7 +161,8 @@ class SettingsTab:
             "indent": tk.DoubleVar(value=a.indent_pt),
         }
         ttk.Label(ann, text="폰트:").grid(row=0, column=0, sticky=W, padx=(0, 4))
-        ttk.Entry(ann, textvariable=self.var_annotation["font"], width=14).grid(row=0, column=1, sticky=W)
+        ttk.Combobox(ann, textvariable=self.var_annotation["font"], values=self._fonts,
+                      width=18).grid(row=0, column=1, sticky=W)
         ttk.Label(ann, text="크기:").grid(row=0, column=2, sticky=W, padx=(16, 4))
         ttk.Spinbox(ann, from_=6, to=72, increment=0.5,
                      textvariable=self.var_annotation["size"], width=8).grid(row=0, column=3, sticky=W)

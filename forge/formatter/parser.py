@@ -227,11 +227,12 @@ def _parse_single_line(line: str) -> Optional[Node]:
         m = pattern.match(line)
         if m:
             text = m.group(1).strip()
+            # 마커 뒤 `(...)` prefix 가 있으면 summary 로 분리 — L1 □ 뿐 아니라
+            # 모든 글머리(○ - ·)에서 동일 처리. 렌더러가 다른 폰트로 강조.
             summary = None
-            if marker == "□":
-                ms = SUMMARY_RE.match(text)
-                if ms:
-                    summary, text = ms.group(1), ms.group(2)
+            ms = SUMMARY_RE.match(text)
+            if ms:
+                summary, text = ms.group(1), ms.group(2)
             return Node(type="bullet", marker=marker, text=text, summary=summary)
 
     return None

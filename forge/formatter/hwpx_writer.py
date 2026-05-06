@@ -104,6 +104,7 @@ def generate_hwpx_via_com(
 
         # 메타데이터 헤더 (보고서명 노란박스 + 부서·일자 stamp)
         meta = doc.metadata
+        metadata_emitted = False
         if meta.보고서명 or 작성부서 or 작성일:
             log(f"[STAGE 1] 메타데이터 헤더: 보고서명={meta.보고서명!r} "
                 f"부서={작성부서!r} 일자={작성일!r}")
@@ -112,13 +113,20 @@ def generate_hwpx_via_com(
                 작성부서=작성부서,
                 작성일=작성일,
             )
+            metadata_emitted = True
     else:
         # cursor 모드 — 현재 커서 위치 그대로
         log("[STAGE 1] 활성 문서 커서 위치에 본문 삽입 (페이지·메타데이터 미변경)")
+        metadata_emitted = False
 
     # ─── 본문 노드 dispatcher ───────────────────────
+    # 메타데이터 헤더가 emit 되었으면 본문 첫 노드 앞에 1줄 prepend.
+    # cursor 모드면 사용자 작업 문서 흐름 보존 위해 첫 노드 앞 자동 prepend 안 함.
     log(f"[STAGE 1] 본문 {len(doc.nodes)} 노드 dispatcher 시작")
-    _dispatch_nodes(hwp, doc.nodes, spec, log)
+    _dispatch_nodes(
+        hwp, doc.nodes, spec, log,
+        initial_prev_emitted=metadata_emitted,
+    )
     # (Bold 인라인 토큰 `__X__` 은 primitives.insert_text 가 렌더링 시점에 처리)
 
     # ─── STAGE 2 후처리 (new 모드만) ─────────────────
@@ -165,33 +173,52 @@ def _dispatch_nodes(
     nodes: list[Node],
     spec: ReportSpec,
     log: callable,
+    initial_prev_emitted: bool = False,
 ) -> None:
     """
     노드 리스트 순회 — 타입에 따라 적절한 렌더러 호출.
 
-    ★ Blank 처리 정책 (2026-04 갱신):
-      bullet/annotation 렌더러의 auto-prepend (위 빈 줄) 알고리즘을 제거 후,
-      markdown 소스의 빈 줄(BlankNode) 을 1:1 로 emit 한다 — 즉 입력 그대로
-      반영. 빈 줄은 8pt 짜리 빈 단락으로 렌더링 (실시간 모드 기본값과 동일).
-      자동 흡수/보정 없음.
+    ★ Blank 처리 정책 (2026-04-30 갱신):
+      모든 비빈 노드 사이에 정확히 1줄 8pt 빈 단락을 보장 (consistent prepend).
+        - md 소스에 빈 줄 없어도 자동으로 1줄 삽입 → 모든 변형 사이 일관 spacing
+        - md 소스에 빈 줄 1+개 있어도 1줄로 coalesce (중복 제거)
+        - 첫 노드 앞 / 마지막 노드 뒤에는 자동 삽입 안 함
+      이 dispatcher 가 prepend 를 단일 책임으로 처리하므로, section/subsection/
+      conclusion/note_callout/attachment 의 내부 "위 빈 줄" 코드는 제거됨.
+
+    initial_prev_emitted:
+      True 면 dispatcher 호출 시점에 이미 비빈 콘텐츠가 emit 된 상태로 가정 →
+      첫 노드 앞에 자동으로 1줄 prepend. "new" 모드에서 메타데이터 헤더 직후
+      본문 시작 시 사용 (헤더와 본문 사이 spacing 보장).
     """
+    def _emit_blank_para() -> None:
+        try:
+            p.set_font_size(hwp, 8)
+            p.break_para(hwp)
+        except Exception:
+            pass
+
+    last_was_emit = bool(initial_prev_emitted)  # 직전이 비빈 노드 emit 였는가
     for node in nodes:
         if node.type == "blank":
-            try:
-                p.set_font_size(hwp, 8)
-                p.break_para(hwp)
-            except Exception:
-                pass
+            # 소스 명시 빈 줄 — 직전이 비빈 노드일 때만 emit (선두/연속 빈줄 무시)
+            if last_was_emit:
+                _emit_blank_para()
+                last_was_emit = False
             continue
+        # 비빈 노드 — 직전도 비빈 노드였으면 자동으로 1줄 prepend
+        if last_was_emit:
+            _emit_blank_para()
         try:
             _dispatch_one(hwp, node, spec)
+            last_was_emit = True
         except Exception as e:
             log(f"  ✘ 노드 렌더링 실패 ({node.type} marker={node.marker!r}): {e}")
-            # 한 노드 실패해도 나머지 진행
             try:
                 p.break_para(hwp)
             except Exception:
                 pass
+            last_was_emit = True  # 실패해도 break_para 했으므로 prepend 위치 갱신
 
 
 def _dispatch_one(hwp: Any, node: Node, spec: ReportSpec) -> None:

@@ -22,12 +22,10 @@ class SubsectionRenderer(ElementRenderer):
         s = self.spec
         hwp = self.hwp
 
-        # 줄 시작 아니면 break
+        # 줄 시작 아니면 break (cursor 모드 안전망).
+        # 위 빈 줄 prepend 는 dispatcher 가 일괄 책임 — 여기서 emit 안 함.
         if not p.is_at_line_start(hwp):
             p.break_para(hwp)
-        # 위 빈 줄 (8pt)
-        p.set_font(hwp, s.subsection_font, 8.0, bold=False)
-        p.break_para(hwp)
         p.align(hwp, "justify")
 
         # 3 셀 표: [마커폭, 1mm 분리, 내용폭]

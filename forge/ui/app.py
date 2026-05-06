@@ -35,6 +35,7 @@ from forge.formatter.templates import REPORT1_SPEC, ReportSpec
 from .hotkeys import GlobalHotkeyManager, MOD_CONTROL, MOD_SHIFT, vk
 from .hwp_picker import pick_hwp_instance
 from .icon import make_app_icon
+from .tabs.howto_tab import HowToTab
 from .tabs.settings_tab import SettingsTab
 from .tabs.markdown_tab import MarkdownTab
 from .tabs.realtime_tab import RealtimeTab
@@ -102,7 +103,7 @@ class ForgeApp:
 
     # ---------------------------------------------------------------- hotkeys
     def _setup_hotkeys(self) -> None:
-        """탭 ① 의 룰을 Ctrl+Shift+Q/W/A/S/D/Z/X 시스템 전역 hotkey 로 등록."""
+        """탭 ① 의 룰을 Ctrl+Shift+Q/W/A/S/D/F/Z/X 시스템 전역 hotkey 로 등록."""
         rt = self.tab_realtime
         mods = MOD_CONTROL | MOD_SHIFT
         self.hotkey_mgr = GlobalHotkeyManager(self.root)
@@ -110,9 +111,10 @@ class ForgeApp:
         self.hotkey_mgr.add(2, mods, vk("W"), rt.hotkey_word_pull,              "Ctrl+Shift+W (어절 끌어올림)")
         self.hotkey_mgr.add(3, mods, vk("A"), rt.hotkey_font_1,                 "Ctrl+Shift+A (폰트1)")
         self.hotkey_mgr.add(4, mods, vk("S"), rt.hotkey_font_2,                 "Ctrl+Shift+S (폰트2)")
-        self.hotkey_mgr.add(5, mods, vk("D"), rt.hotkey_paragraph_size_8,       "Ctrl+Shift+D (8pt)")
-        self.hotkey_mgr.add(6, mods, vk("Z"), rt.hotkey_kerning_reset,          "Ctrl+Shift+Z (자간 0)")
-        self.hotkey_mgr.add(7, mods, vk("X"), rt.hotkey_md_convert_selection,   "Ctrl+Shift+X (선택→md 변환)")
+        self.hotkey_mgr.add(5, mods, vk("D"), rt.hotkey_summary_font,           "Ctrl+Shift+D (요약 폰트)")
+        self.hotkey_mgr.add(6, mods, vk("F"), rt.hotkey_paragraph_size_8,       "Ctrl+Shift+F (글자크기)")
+        self.hotkey_mgr.add(7, mods, vk("Z"), rt.hotkey_kerning_reset,          "Ctrl+Shift+Z (자간 0)")
+        self.hotkey_mgr.add(8, mods, vk("X"), rt.hotkey_md_convert_selection,   "Ctrl+Shift+X (선택→md 변환)")
 
         results = self.hotkey_mgr.start()
         # 각 행의 ✓/✗ 상태 라벨 갱신 (시각 피드백)
@@ -158,14 +160,22 @@ class ForgeApp:
         notebook.pack(fill=BOTH, expand=True, padx=10, pady=(0, 10))
 
         # 탭 인스턴스화 — 각 탭은 app 참조 보유 (state + ensure_hwp 호출 등)
+        self.tab_howto = HowToTab(notebook)
         self.tab_settings = SettingsTab(notebook, self.state)
         self.tab_markdown = MarkdownTab(notebook, self)
         self.tab_realtime = RealtimeTab(notebook, self)
 
-        # 실시간(개별 작업) 을 가장 자주 쓰므로 맨 앞 배치.
+        # 첫 사용자가 바로 안내를 볼 수 있도록 How to? 를 맨 앞에 배치.
+        # 익숙해진 사용자는 탭 ① 로 이동해 작업.
+        notebook.add(self.tab_howto.frame, text="ⓘ How to?")
         notebook.add(self.tab_realtime.frame, text="① 개별 작업")
         notebook.add(self.tab_settings.frame, text="② 기본정보")
         notebook.add(self.tab_markdown.frame, text="③ 마크다운 입력")
+        # 기본 활성 탭은 실시간(가장 자주 쓰는 모드). How to? 는 사용자가 클릭해서 본다.
+        try:
+            notebook.select(self.tab_realtime.frame)
+        except tk.TclError:
+            pass
 
         # 하단 footer
         footer = ttk.Frame(self.root, padding=(10, 4))

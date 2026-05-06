@@ -32,12 +32,10 @@ class NoteCalloutRenderer(ElementRenderer):
         s = self.spec
         hwp = self.hwp
 
-        # 위치 정리 — 줄 시작 아니면 break
+        # 위치 정리 — 줄 시작 아니면 break (cursor 모드 안전망).
+        # 위 빈 줄 prepend 는 dispatcher 가 일괄 책임 — 여기서 emit 안 함.
         if not p.is_at_line_start(hwp):
             p.break_para(hwp)
-        # 위 6pt 빈 줄 (tool2: 글자크기(6) + BreakPara)
-        p.set_font(hwp, "맑은 고딕", 6.0, bold=False)
-        p.break_para(hwp)
         p.align(hwp, "right")  # tool2: ParagraphShapeAlignRight
 
         # 1×1 점선 표

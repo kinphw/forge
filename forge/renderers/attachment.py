@@ -38,11 +38,10 @@ class AttachmentRenderer(ElementRenderer):
         # 라벨 텍스트
         label = f"붙임 {number}" if number is not None else "붙임"
 
-        # 줄 시작 보장 + 위 여유
+        # 줄 시작 보장 (PageBreak 직후 안전망).
+        # 위 빈 줄 prepend 는 dispatcher 가 일괄 책임 — 여기서 emit 안 함.
         if not p.is_at_line_start(hwp):
             p.break_para(hwp)
-        p.set_font(hwp, s.note_header_font, 8.0, bold=False)
-        p.break_para(hwp)
         p.align(hwp, "justify")
 
         # 3 셀 표 [라벨폭, 1mm 분리, 본문폭] — 이전 NoteCallout 패턴

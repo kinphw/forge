@@ -60,12 +60,15 @@ class RealtimeTab:
 
         # ─── 활성 그룹 — 현재 문단 단위 적용 ───────────────────
         # 버튼 vertical stack (좌측) + meta controls (우측 상단).
-        # 행 1: 자동 정렬 (들·자·들)        — 메인 동선
-        # 행 2: 어절 1개 끌어올림            — 보조 동선
-        # 행 3: 폰트/크기 적용 + 텍스트박스 (휴먼명조 / 15)
-        # 행 4: 폰트/크기 적용 + 텍스트박스 (맑은 고딕 / 12)
-        # 행 5: 들여쓰기 정렬                — 개별기능 표시 시만
-        # 행 6: 자간조정 (어절 잘림 방지)    — 개별기능 표시 시만
+        # 행 0: 자동 정렬 (들·자·들)               — 메인 동선
+        # 행 1: 어절 1개 끌어올림                  — 보조 동선
+        # 행 2: 폰트/크기 적용 + 텍스트박스 (TH휴먼명조 / 15)
+        # 행 3: 폰트/크기 적용 + 텍스트박스 (맑은 고딕 / 12)
+        # 행 4: 선택영역 → TT HY울릉도M 15pt        — 요약/개요 강조용
+        # 행 5: 현재 문단 글자크기 (빈줄용, 사용자 지정 pt)
+        # 행 6: 자간 0 초기화 (선택/문단)
+        # 행 7: 선택 영역 → 마크다운 변환
+        # 행 8·9: 들여쓰기 정렬·자간조정          — 개별기능 표시 시만
         active_group = TtkLabelFrame(
             self.frame,
             text="🧪 현재 캐럿이 위치한 곳(문단) 또는 선택영역에만 적용됨",
@@ -73,7 +76,7 @@ class RealtimeTab:
         )
         active_group.pack(fill=X, pady=(0, 6))
 
-        # ─── 상단 meta bar — 로그 비우기 / 개별기능 표시 ─────
+        # ─── 상단 meta bar — 로그 비우기 / 개별기능 표시 / 폰트 검색 ─────
         top_meta = ttk.Frame(active_group)
         top_meta.pack(fill=X, pady=(0, 8))
         ttk.Button(
@@ -88,21 +91,35 @@ class RealtimeTab:
             command=self._toggle_individual_buttons,
         ).pack(side=LEFT, padx=(20, 0))
 
+        # 폰트 검색 — 시스템에 설치된 폰트 목록을 정규식 필터링해 로그에 표시.
+        # 한/글 미경유 (tkinter.font.families). 폰트 이름 오타 진단용.
+        ttk.Label(top_meta, text="폰트 검색:").pack(side=LEFT, padx=(20, 4))
+        self.var_font_search = tk.StringVar(value="휴먼|HY|명조|함초롬|TH|바탕|돋움")
+        ent = ttk.Entry(top_meta, textvariable=self.var_font_search, width=28)
+        ent.pack(side=LEFT)
+        ent.bind("<Return>", lambda _e: self._search_installed_fonts())
+        ttk.Button(
+            top_meta, text="🔎 검색",
+            command=self._search_installed_fonts,
+            width=8,
+        ).pack(side=LEFT, padx=(2, 0))
+
         # ─── hotkey letter StringVars (사용자 편집 가능) + 상태 라벨 dict ────
-        # 7 개 hotkey 각각 letter 1글자 — 비우면 비활성화. 변경 시 GlobalHotkeyManager
+        # 8 개 hotkey 각각 letter 1글자 — 비우면 비활성화. 변경 시 GlobalHotkeyManager
         # 에 PostThreadMessage 로 재등록 요청. 결과는 status 라벨 (✓ / ✗ / —) 로 표시.
         self.var_hk_letter: dict[int, tk.StringVar] = {
             1: tk.StringVar(value="Q"),
             2: tk.StringVar(value="W"),
             3: tk.StringVar(value="A"),
             4: tk.StringVar(value="S"),
-            5: tk.StringVar(value="D"),  # 현재 문단 8pt
-            6: tk.StringVar(value="Z"),  # 자간 0 초기화
-            7: tk.StringVar(value="X"),  # 선택 영역 → 마크다운 변환
+            5: tk.StringVar(value="D"),  # 선택영역 → TT HY울릉도M 15pt
+            6: tk.StringVar(value="F"),  # 현재 문단 글자크기 (빈줄용)
+            7: tk.StringVar(value="Z"),  # 자간 0 초기화
+            8: tk.StringVar(value="X"),  # 선택 영역 → 마크다운 변환
         }
         # 마지막으로 성공 적용된 letter — 실패 시 revert 기준
         self._hk_applied: dict[int, str] = {
-            1: "Q", 2: "W", 3: "A", 4: "S", 5: "D", 6: "Z", 7: "X",
+            1: "Q", 2: "W", 3: "A", 4: "S", 5: "D", 6: "F", 7: "Z", 8: "X",
         }
         # 상태 라벨 위젯 (foreground 동적 변경 위해 reference 보관)
         self._hk_status_lbl: dict[int, ttk.Label] = {}
@@ -120,12 +137,15 @@ class RealtimeTab:
         grid.columnconfigure(1, minsize=180)
         grid.columnconfigure(2)
 
-        # 폰트 입력 StringVars
-        self.var_font1 = tk.StringVar(value="휴먼명조")
+        # 폰트 입력 StringVars — 행 2/3/4 의 (본문/주석/요약) 3 종 폰트 cluster.
+        # 모두 사용자가 Combobox 에서 자유 선택. 기본값은 보고서 1 spec 관례.
+        self.var_font1 = tk.StringVar(value="TH휴먼명조")  # 본문
         self.var_size1 = tk.StringVar(value="15")
-        self.var_font2 = tk.StringVar(value="맑은 고딕")
+        self.var_font2 = tk.StringVar(value="맑은 고딕")  # 주석
         self.var_size2 = tk.StringVar(value="12")
-        # 빈줄용 글자크기 — 행 4 button. 사용자가 칸에서 자유롭게 변경 가능.
+        self.var_font3 = tk.StringVar(value="TT HY울릉도M")  # 요약 (개요/요약 강조)
+        self.var_size3 = tk.StringVar(value="15")
+        # 빈줄용 글자크기 — 행 5 button. 사용자가 칸에서 자유롭게 변경 가능.
         self.var_blank_size = tk.StringVar(value="8")
 
         # ─── 행 0: 자동 정렬 ────────────────────────────────────
@@ -155,79 +175,94 @@ class RealtimeTab:
         self._build_hotkey_widget(hk2, hk_id=2)
         hk2.grid(row=1, column=2, sticky="w")
 
-        # ─── 행 2: 폰트·크기 (휴먼명조 15) ─────────────────────
+        # ─── 행 2: 폰트·크기 (본문) — 휴먼명조 15pt 등 본문체 ────
         btn3 = ttk.Button(
-            grid, text="폰트·크기 (휴먼명조 15)",
+            grid, text="폰트·크기 (본문)",
             command=lambda: self._apply_font(self.var_font1.get(), self.var_size1.get()),
             width=24,
         )
         btn3.grid(row=2, column=0, sticky="w", pady=2, padx=(0, 8))
-        Tooltip(btn3, "선택영역 폰트·크기 설정 (선택 없으면 다음 입력 attr 변경)")
+        Tooltip(btn3, "선택영역 폰트·크기 (본문) — 우측 입력값 적용")
         font_cluster_1 = self._make_font_cluster(grid, self.var_font1, self.var_size1)
         font_cluster_1.grid(row=2, column=1, sticky="w", padx=(0, 8))
         hk3 = ttk.Frame(grid)
         self._build_hotkey_widget(hk3, hk_id=3)
         hk3.grid(row=2, column=2, sticky="w")
 
-        # ─── 행 3: 폰트·크기 (맑은 고딕 12) ─────────────────────
+        # ─── 행 3: 폰트·크기 (주석) — 맑은 고딕 12pt 등 주석체 ────
         btn4 = ttk.Button(
-            grid, text="폰트·크기 (맑은 고딕 12)",
+            grid, text="폰트·크기 (주석)",
             command=lambda: self._apply_font(self.var_font2.get(), self.var_size2.get()),
             width=24,
         )
         btn4.grid(row=3, column=0, sticky="w", pady=2, padx=(0, 8))
-        Tooltip(btn4, "선택영역 폰트·크기 설정 (선택 없으면 다음 입력 attr 변경)")
+        Tooltip(btn4, "선택영역 폰트·크기 (주석) — 우측 입력값 적용")
         font_cluster_2 = self._make_font_cluster(grid, self.var_font2, self.var_size2)
         font_cluster_2.grid(row=3, column=1, sticky="w", padx=(0, 8))
         hk4 = ttk.Frame(grid)
         self._build_hotkey_widget(hk4, hk_id=4)
         hk4.grid(row=3, column=2, sticky="w")
 
-        # ─── 행 4: 현재 문단 글자크기 (빈줄용, 사용자 지정) ────
-        # 사용자가 [Entry] pt 칸에 원하는 크기를 입력 → 클릭/단축키 시 그 값으로 적용.
-        # 기본 8pt. 한/글에서 빈줄 자간 꼬임 회피용 작은 크기 세팅 동선.
+        # ─── 행 4: 폰트·크기 (요약) — TT HY울릉도M 15pt 등 강조체 ──
+        # 마커 뒤 (개요)/(요약) 등 강조 부분을 같은 폰트로 빠르게 통일.
         btn5 = ttk.Button(
-            grid, text="현재 문단 → 글자크기",
-            command=self._run_paragraph_size_8,
+            grid, text="폰트·크기 (요약)",
+            command=lambda: self._apply_font(self.var_font3.get(), self.var_size3.get()),
             width=24,
         )
         btn5.grid(row=4, column=0, sticky="w", pady=2, padx=(0, 8))
-        Tooltip(btn5, "빈줄 용 글자크기 설정 (자간 꼬임 회피)")
-        size_cluster = self._make_size_cluster(grid, self.var_blank_size)
-        size_cluster.grid(row=4, column=1, sticky="w", padx=(0, 8))
+        Tooltip(btn5, "선택영역 폰트·크기 (요약) — (개요)/(요약) 강조용 우측 입력값 적용")
+        font_cluster_3 = self._make_font_cluster(grid, self.var_font3, self.var_size3)
+        font_cluster_3.grid(row=4, column=1, sticky="w", padx=(0, 8))
         hk5 = ttk.Frame(grid)
         self._build_hotkey_widget(hk5, hk_id=5)
         hk5.grid(row=4, column=2, sticky="w")
 
-        # ─── 행 5: 자간 0 초기화 (선택 영역 또는 현재 문단) ────
+        # ─── 행 5: 현재 문단 글자크기 (빈줄용, 사용자 지정) ────
+        # 사용자가 [Entry] pt 칸에 원하는 크기를 입력 → 클릭/단축키 시 그 값으로 적용.
+        # 기본 8pt. 한/글에서 빈줄 자간 꼬임 회피용 작은 크기 세팅 동선.
         btn6 = ttk.Button(
-            grid, text="자간 0 초기화 (선택/문단)",
-            command=self._run_kerning_reset,
+            grid, text="현재 문단 → 글자크기",
+            command=self._run_paragraph_size_8,
             width=24,
         )
         btn6.grid(row=5, column=0, sticky="w", pady=2, padx=(0, 8))
-        Tooltip(btn6, "해당 문단 자간 0으로 초기화 (자간 꼬였을 때)")
+        Tooltip(btn6, "빈줄 용 글자크기 설정 (자간 꼬임 회피)")
+        size_cluster = self._make_size_cluster(grid, self.var_blank_size)
+        size_cluster.grid(row=5, column=1, sticky="w", padx=(0, 8))
         hk6 = ttk.Frame(grid)
         self._build_hotkey_widget(hk6, hk_id=6)
         hk6.grid(row=5, column=2, sticky="w")
 
-        # ─── 행 6: 선택 영역 → 마크다운 변환 (영역 필수) ────────
-        # 한/글 자체에서 md 본문을 타이핑한 뒤 영역 선택 → 단축키 호출.
-        # 선택 영역 plain text 를 추출해 cursor 모드로 그 자리에 변환 출력.
-        # Tk Text 의 한글 IME 매끄럽지 않음 회피 — 한/글 IME 가 매끄럽다.
+        # ─── 행 6: 자간 0 초기화 (선택 영역 또는 현재 문단) ────
         btn7 = ttk.Button(
-            grid, text="선택 영역 → 마크다운 변환",
-            command=self._run_md_convert_selection,
+            grid, text="자간 0 초기화 (선택/문단)",
+            command=self._run_kerning_reset,
             width=24,
         )
         btn7.grid(row=6, column=0, sticky="w", pady=2, padx=(0, 8))
-        Tooltip(btn7,
-                "한/글에서 영역 선택 후 호출 — 선택 텍스트를 마크다운으로 해석해 변환 결과로 대체")
+        Tooltip(btn7, "해당 문단 자간 0으로 초기화 (자간 꼬였을 때)")
         hk7 = ttk.Frame(grid)
         self._build_hotkey_widget(hk7, hk_id=7)
         hk7.grid(row=6, column=2, sticky="w")
 
-        # ─── 행 7·8: 개별 진단 버튼 (체크박스 토글, 기본 숨김) ──
+        # ─── 행 7: 선택 영역 → 마크다운 변환 (영역 필수) ────────
+        # 한/글 자체에서 md 본문을 타이핑한 뒤 영역 선택 → 단축키 호출.
+        # 선택 영역 plain text 를 추출해 cursor 모드로 그 자리에 변환 출력.
+        # Tk Text 의 한글 IME 매끄럽지 않음 회피 — 한/글 IME 가 매끄럽다.
+        btn8 = ttk.Button(
+            grid, text="선택 영역 → 마크다운 변환",
+            command=self._run_md_convert_selection,
+            width=24,
+        )
+        btn8.grid(row=7, column=0, sticky="w", pady=2, padx=(0, 8))
+        Tooltip(btn8,
+                "한/글에서 영역 선택 후 호출 — 선택 텍스트를 마크다운으로 해석해 변환 결과로 대체")
+        hk8 = ttk.Frame(grid)
+        self._build_hotkey_widget(hk8, hk_id=8)
+        hk8.grid(row=7, column=2, sticky="w")
+
+        # ─── 행 8·9: 개별 진단 버튼 (체크박스 토글, 기본 숨김) ──
         # 토글 시 grid_remove() / grid() 로 노출 제어.
         self.btn_indent_only = ttk.Button(
             grid, text="들여쓰기 정렬",
@@ -319,8 +354,12 @@ class RealtimeTab:
         """Ctrl+Shift+S — 행 4 폰트/크기 적용."""
         self._apply_font(self.var_font2.get(), self.var_size2.get())
 
+    def hotkey_summary_font(self) -> None:
+        """Ctrl+Shift+D — 행 4 폰트/크기 적용 (요약 폰트, 우측 입력값 적용)."""
+        self._apply_font(self.var_font3.get(), self.var_size3.get())
+
     def hotkey_paragraph_size_8(self) -> None:
-        """Ctrl+Shift+D — 현재 문단 글자크기 (var_blank_size pt, 기본 8)."""
+        """Ctrl+Shift+F — 현재 문단 글자크기 (var_blank_size pt, 기본 8)."""
         self._run_paragraph_size_8()
 
     def hotkey_kerning_reset(self) -> None:
@@ -331,6 +370,25 @@ class RealtimeTab:
         """Ctrl+Shift+X — 한/글 선택 영역을 마크다운으로 해석해 그 자리에 변환 출력."""
         self._run_md_convert_selection()
 
+    # ----------------------------------------- 설치 폰트 목록 (lazy + 캐시)
+    def _get_installed_fonts(self) -> list[str]:
+        """설치된 폰트 목록 반환. 첫 호출 시 enum 후 캐시.
+
+        tkinter.font.families() 는 GDI/DirectWrite enum 결과로 한/글 폰트
+        드롭다운과 사실상 동일. 사용자가 Combobox 에서 정확한 face name 을
+        직접 골라 사용 → 이름 오타 사고 원천 차단.
+        """
+        if not hasattr(self, "_font_families_cache"):
+            try:
+                from tkinter import font as tkfont
+                self._font_families_cache = sorted(
+                    set(tkfont.families(self.app.root))
+                )
+            except Exception as e:
+                print(f"[realtime_tab] font enum 실패: {e}")
+                self._font_families_cache = []
+        return self._font_families_cache
+
     # ----------------------------------------- 폰트/크기 입력 묶음 (지정서식 컬럼)
     def _make_font_cluster(
         self,
@@ -338,13 +396,17 @@ class RealtimeTab:
         font_var: tk.StringVar,
         size_var: tk.StringVar,
     ) -> ttk.Frame:
-        """폰트 Entry + 크기 Entry + 'pt' 라벨을 한 Frame 에 모아 반환.
+        """폰트 Combobox + 크기 Entry + 'pt' 라벨을 한 Frame 에 모아 반환.
 
+        Combobox: 설치 폰트 드롭다운 + 자유 타이핑 둘 다 허용 (state='normal').
         반환된 Frame 을 grid 셀에 그대로 배치해 컬럼 정렬에 활용.
         """
         cluster = ttk.Frame(parent)
-        ttk.Entry(cluster, textvariable=font_var, width=14).pack(
-            side=LEFT, padx=(0, 4))
+        cb = ttk.Combobox(
+            cluster, textvariable=font_var, width=16,
+            values=self._get_installed_fonts(),
+        )
+        cb.pack(side=LEFT, padx=(0, 4))
         ttk.Entry(cluster, textvariable=size_var, width=5).pack(side=LEFT)
         ttk.Label(cluster, text="pt", foreground="#777").pack(
             side=LEFT, padx=(2, 0))
@@ -442,7 +504,7 @@ class RealtimeTab:
     def set_initial_hk_results(self, results: list[tuple[str, bool]]) -> None:
         """app 이 hotkey 초기 등록 후 호출 — 각 행에 ✓/✗ 반영.
 
-        results 는 hk_id 1·2·3·4 순서. 비활성화는 startup 에 없으므로 ✓ or ✗ 만.
+        results 는 hk_id 1~8 순서. 비활성화는 startup 에 없으므로 ✓ or ✗ 만.
         """
         for idx, (label, ok) in enumerate(results):
             hk_id = idx + 1
@@ -457,18 +519,48 @@ class RealtimeTab:
     def _toggle_individual_buttons(self) -> None:
         """'개별기능 표시' 체크박스 — 진단용 단일 룰 버튼 2개 표시/숨김.
 
-        체크 시: 들여쓰기 정렬·자간조정 버튼을 grid 의 행 4·5 column 0 에 노출.
+        체크 시: 들여쓰기 정렬·자간조정 버튼을 grid 의 행 8·9 column 0 에 노출.
         해제 시: grid_remove() — grid 에서 빠지지만 내부 grid 옵션은 보존되어
         재체크 시 원래 위치에 grid() 로 즉시 복원 가능.
         """
         if self.var_show_individual.get():
             self.btn_indent_only.grid(
-                row=7, column=0, sticky="w", pady=2, padx=(0, 8))
-            self.btn_kerning_only.grid(
                 row=8, column=0, sticky="w", pady=2, padx=(0, 8))
+            self.btn_kerning_only.grid(
+                row=9, column=0, sticky="w", pady=2, padx=(0, 8))
         else:
             self.btn_indent_only.grid_remove()
             self.btn_kerning_only.grid_remove()
+
+    # ------------------------------------------------------------ 폰트 검색
+    def _search_installed_fonts(self) -> None:
+        """시스템에 설치된 폰트 중 정규식 매칭 항목을 로그에 출력.
+
+        한/글 거치지 않고 tkinter.font.families() — Tk 가 enum 한 폰트 이름이
+        곧 한/글이 인식하는 이름과 사실상 동일 (둘 다 GDI/DirectWrite enum 결과).
+        용도: "이름이 안 먹어요" 진단 — 실제 설치된 정확한 face name 확인.
+        """
+        import re
+        from tkinter import font as tkfont
+        pat = self.var_font_search.get().strip() or ".+"
+        try:
+            rx = re.compile(pat, re.IGNORECASE)
+        except re.error as e:
+            self._log(f"[font-search] 정규식 오류: {e}")
+            return
+        try:
+            fams = sorted(set(tkfont.families(self.app.root)))
+        except Exception as e:
+            self._log(f"[font-search] families() 호출 실패: {e}")
+            return
+        matches = [f for f in fams if rx.search(f)]
+        self._log("")
+        self._log(f"━━━━━━ 폰트 검색 (pattern={pat!r}) ━━━━━━")
+        self._log(f"  설치 폰트 총 {len(fams)}개 / 매칭 {len(matches)}개")
+        for f in matches:
+            self._log(f"  • {f!r}")
+        if not matches:
+            self._log("  (매칭 없음 — pattern 비우거나 .+ 로 전체 보기)")
 
     # ------------------------------------------------------------ 로그
     def _log(self, msg: str) -> None:
@@ -622,7 +714,27 @@ class RealtimeTab:
                 "FaceNameLatin":    font_name, "FontTypeLatin":    1,
                 "Height":           int(size_pt * 100),
             })
-            self._log(f"[ok] CharShape 적용: {label}")
+            self._log(f"[ok] CharShape 적용 요청: {label}")
+            # 진단 — 적용 후 실제 CharShape 를 다시 읽어 user 가 입력한 폰트가
+            # 그대로 들어갔는지 확인. 한/글이 미설치 폰트는 silent substitution
+            # 하지 않고 보통 그 이름 그대로 저장하나, 화면 표시는 폴백 폰트로
+            # 됨. 이 readback 으로 "폰트가 안 먹는" 사고 (잘못된 이름) 진단.
+            try:
+                hwp.HAction.GetDefault("CharShape", hwp.HParameterSet.HCharShape.HSet)
+                cs = hwp.HParameterSet.HCharShape
+                self._log(
+                    f"[verify] FaceNameHangul={cs.FaceNameHangul!r} "
+                    f"Latin={cs.FaceNameLatin!r} Height={cs.Height} "
+                    f"(요청 Height={int(size_pt * 100)})"
+                )
+                if str(cs.FaceNameHangul) != font_name:
+                    self._log(
+                        f"  ⚠ 요청 폰트 {font_name!r} 와 readback {cs.FaceNameHangul!r} "
+                        f"불일치 — 한/글에 해당 폰트가 설치되지 않았거나 이름 오타 "
+                        f"가능. 한/글 메뉴 [서식 → 글자 모양] 에서 실제 폰트 목록 확인."
+                    )
+            except Exception as ve:
+                self._log(f"[verify] readback 실패: {ve}")
             self._log(f"━━━━━━ 폰트·크기 적용 — {label} 완료 ━━━━━━")
             done_msg = f"✔ 폰트·크기 적용 완료: {label}"
             self._log(done_msg)
