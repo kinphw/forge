@@ -567,50 +567,85 @@ class RealtimeTab:
                 self.app._set_status(f"✘ 조회 실패: {e}")
                 return
             hwp = session.hwp
-            # GetDefault 는 현재 캐럿/선택의 effective CharShape 를 HSet 에 채움.
-            # 우리가 set_param 으로 적용한 직후라면 그 값이 보임. 빈 영역이면
-            # 캐럿 위치의 다음 입력 글자에 적용될 default.
-            hwp.HAction.GetDefault("CharShape", hwp.HParameterSet.HCharShape.HSet)
-            cs = hwp.HParameterSet.HCharShape
 
-            height = int(cs.Height or 0)
-            size_pt = height / 100.0 if height else 0.0
-            face_h = str(cs.FaceNameHangul or "")
-            face_l = str(cs.FaceNameLatin or "")
-            face_hj = str(cs.FaceNameHanja or "")
-            face_j = str(cs.FaceNameJapanese or "")
-            face_o = str(cs.FaceNameOther or "")
-            face_s = str(cs.FaceNameSymbol or "")
-            face_u = str(cs.FaceNameUser or "")
-            ft_h = int(cs.FontTypeHangul or 0)
-            bold = bool(int(cs.Bold or 0))
-            italic = bool(int(cs.Italic or 0))
-            ratio_h = int(cs.RatioHangul or 100)
-            spacing_h = int(cs.SpacingHangul or 0)
+            # ─── (A) default CharShape readback (style 계층 결과) ───
+            self._dump_charshape(hwp, label="default (GetDefault)")
 
-            ft_label = {0: "don't care", 1: "TTF", 2: "HFT"}.get(ft_h, f"?({ft_h})")
-            self._log(f"  크기      : {size_pt:.1f} pt  (Height={height})")
-            self._log(f"  Bold/Italic: {bold} / {italic}")
-            self._log(f"  자간/장평  : {spacing_h}% / {ratio_h}%")
-            self._log(f"  FontType (한글)  : {ft_h} ({ft_label})")
-            self._log(f"  FaceNameHangul   : {face_h!r}")
-            self._log(f"  FaceNameLatin    : {face_l!r}")
-            self._log(f"  FaceNameHanja    : {face_hj!r}")
-            self._log(f"  FaceNameJapanese : {face_j!r}")
-            self._log(f"  FaceNameOther    : {face_o!r}")
-            self._log(f"  FaceNameSymbol   : {face_s!r}")
-            self._log(f"  FaceNameUser     : {face_u!r}")
-            if not face_h:
-                self._log(
-                    "  ⚠ FaceNameHangul 이 비어있음 — 한/글이 face name 매칭에"
-                    " 실패한 상태. 폰트가 시스템에 미설치이거나 이름 불일치."
-                )
-            self.app._set_status(
-                f"✔ 캐럿 글자모양: {face_h or '(빈 face)'} {size_pt:.1f}pt"
+            # ─── (B) selection readback — 캐럿 우측 1글자 선택 후 readback ───
+            # GetDefault 는 style 계층에서만 채워질 수 있어 character-level
+            # override 를 못 잡는 케이스가 있음. 선택영역 기반 readback 은
+            # 그 글자의 실제 적용 face name 을 더 신뢰성 있게 반환.
+            try:
+                origin = hwp.GetPos()
+                hwp.Run("MoveSelRight")
+                hwp.HAction.GetDefault("CharShape", hwp.HParameterSet.HCharShape.HSet)
+                self._dump_charshape(hwp, label="selection (1글자 우측)")
+                hwp.Run("Cancel")
+                if origin is not None:
+                    hwp.SetPos(*origin)
+            except Exception as e:
+                self._log(f"  [selection-readback] 실패: {e}")
+
+            # ─── (C) GetFontList — 문서에 사용된 face name 전체 (canonical) ───
+            # 한/글이 자체적으로 인식한 정확한 이름 노출. ScanFont 선행 필수.
+            try:
+                self._log("")
+                self._log("  ─── 문서 사용 글꼴 (ScanFont + GetFontList) ─")
+                hwp.ScanFont()
+                lang_map = [
+                    (0, "한글"), (1, "영문"), (2, "한자"),
+                    (3, "일어"), (4, "외국어"), (5, "기호"), (6, "사용자"),
+                ]
+                for lang_id, lang_name in lang_map:
+                    try:
+                        s = str(hwp.GetFontList(lang_id) or "")
+                    except Exception as e:
+                        self._log(f"  [{lang_name}] GetFontList({lang_id}) 실패: {e}")
+                        continue
+                    if not s:
+                        self._log(f"  [{lang_name}] (없음)")
+                    else:
+                        self._log(f"  [{lang_name}] {s!r}")
+            except Exception as e:
+                self._log(f"  [GetFontList] 호출 실패: {e}")
+
+            self._log("")
+            self._log(
+                "  💡 (A) FaceNameHangul 비어있고 (B) selection 이 채워져 있으면"
+                " character-level override. 둘 다 비어있으면 paragraph/section"
+                " style 에서만 폰트가 정의된 상태 — (C) GetFontList 의 한글 항목"
+                " 에서 한/글이 실제 인식한 정확한 이름 확인 가능."
             )
+            self.app._set_status("✔ 캐럿 글자모양 조회 완료 — 로그 확인")
         except Exception as e:
             self._log(f"[ERROR] {type(e).__name__}: {e}")
             self.app._set_status(f"✘ 조회 실패: {e}")
+
+    def _dump_charshape(self, hwp, label: str) -> None:
+        """현재 hwp.HParameterSet.HCharShape 의 주요 항목을 로그에 dump."""
+        cs = hwp.HParameterSet.HCharShape
+        height = int(cs.Height or 0)
+        size_pt = height / 100.0 if height else 0.0
+        face_h = str(cs.FaceNameHangul or "")
+        face_l = str(cs.FaceNameLatin or "")
+        ft_h = int(cs.FontTypeHangul or 0)
+        bold = bool(int(cs.Bold or 0))
+        italic = bool(int(cs.Italic or 0))
+        ratio_h = int(cs.RatioHangul or 100)
+        spacing_h = int(cs.SpacingHangul or 0)
+        ft_label = {0: "don't care", 1: "TTF", 2: "HFT"}.get(ft_h, f"?({ft_h})")
+        self._log(f"  ─── {label} ─────")
+        self._log(f"    크기      : {size_pt:.1f} pt  (Height={height})")
+        self._log(f"    Bold/Italic: {bold} / {italic}")
+        self._log(f"    자간/장평 : {spacing_h}% / {ratio_h}%")
+        self._log(f"    FontType (한글) : {ft_h} ({ft_label})")
+        self._log(f"    FaceNameHangul  : {face_h!r}")
+        self._log(f"    FaceNameLatin   : {face_l!r}")
+        self._log(f"    FaceNameHanja   : {str(cs.FaceNameHanja or '')!r}")
+        self._log(f"    FaceNameJapanese: {str(cs.FaceNameJapanese or '')!r}")
+        self._log(f"    FaceNameOther   : {str(cs.FaceNameOther or '')!r}")
+        self._log(f"    FaceNameSymbol  : {str(cs.FaceNameSymbol or '')!r}")
+        self._log(f"    FaceNameUser    : {str(cs.FaceNameUser or '')!r}")
 
     # ------------------------------------------------------------ 폰트 검색
     def _search_installed_fonts(self) -> None:
