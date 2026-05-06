@@ -122,14 +122,17 @@ def set_font(hwp: Any, font: str, size_pt: float, bold: bool = False) -> None:
     폰트·크기·Bold 일괄 적용. 한/글의 7개 언어 면 모두 지정.
     Bold 는 CharShape의 Bold 항목으로.
     """
+    # FontType* = 0 (don't care) — 한/글이 TTF/HFT 자동 매칭. 1 (TTF 강제) 로 두면
+    # 폐쇄망 등 HFT-only 환경에서 face name 매칭 실패 → readback '' 사고. API 정의
+    # (CharShape ParameterSet): 0=don't care, 1=TTF, 2=HFT.
     set_param(hwp, "CharShape", {
-        "FaceNameUser":     font, "FontTypeUser":     1,
-        "FaceNameHangul":   font, "FontTypeHangul":   1,
-        "FaceNameSymbol":   font, "FontTypeSymbol":   1,
-        "FaceNameOther":    font, "FontTypeOther":    1,
-        "FaceNameJapanese": font, "FontTypeJapanese": 1,
-        "FaceNameHanja":    font, "FontTypeHanja":    1,
-        "FaceNameLatin":    font, "FontTypeLatin":    1,
+        "FaceNameUser":     font, "FontTypeUser":     0,
+        "FaceNameHangul":   font, "FontTypeHangul":   0,
+        "FaceNameSymbol":   font, "FontTypeSymbol":   0,
+        "FaceNameOther":    font, "FontTypeOther":    0,
+        "FaceNameJapanese": font, "FontTypeJapanese": 0,
+        "FaceNameHanja":    font, "FontTypeHanja":    0,
+        "FaceNameLatin":    font, "FontTypeLatin":    0,
         "Height": int(size_pt * 100),
         "Bold":   1 if bold else 0,
     })

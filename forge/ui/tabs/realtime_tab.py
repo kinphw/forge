@@ -704,14 +704,17 @@ class RealtimeTab:
 
             hwp = session.hwp
             # 한/글 7개 언어 면 일괄 + Height(pt × 100) 변경. Bold/색상 보존.
+            # FontType* = 0 (don't care) — 한/글이 TTF/HFT 자동 매칭. 1 (TTF 강제)
+            # 로 두면 폐쇄망 등 HFT-only 환경에서 face name 매칭 실패 → readback ''
+            # 사고. API 정의(CharShape): 0=don't care, 1=TTF, 2=HFT.
             set_param(hwp, "CharShape", {
-                "FaceNameUser":     font_name, "FontTypeUser":     1,
-                "FaceNameHangul":   font_name, "FontTypeHangul":   1,
-                "FaceNameSymbol":   font_name, "FontTypeSymbol":   1,
-                "FaceNameOther":    font_name, "FontTypeOther":    1,
-                "FaceNameJapanese": font_name, "FontTypeJapanese": 1,
-                "FaceNameHanja":    font_name, "FontTypeHanja":    1,
-                "FaceNameLatin":    font_name, "FontTypeLatin":    1,
+                "FaceNameUser":     font_name, "FontTypeUser":     0,
+                "FaceNameHangul":   font_name, "FontTypeHangul":   0,
+                "FaceNameSymbol":   font_name, "FontTypeSymbol":   0,
+                "FaceNameOther":    font_name, "FontTypeOther":    0,
+                "FaceNameJapanese": font_name, "FontTypeJapanese": 0,
+                "FaceNameHanja":    font_name, "FontTypeHanja":    0,
+                "FaceNameLatin":    font_name, "FontTypeLatin":    0,
                 "Height":           int(size_pt * 100),
             })
             self._log(f"[ok] CharShape 적용 요청: {label}")

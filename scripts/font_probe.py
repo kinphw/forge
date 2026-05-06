@@ -63,14 +63,15 @@ def probe_font(hwp, name: str, size_pt: float = 15.0) -> dict:
     """폰트 1개 시도. 결과 dict 반환."""
     height = int(size_pt * 100)
     try:
+        # FontType* = 0 (don't care) — 한/글이 TTF/HFT 자동 매칭.
         set_param(hwp, "CharShape", {
-            "FaceNameUser":     name, "FontTypeUser":     1,
-            "FaceNameHangul":   name, "FontTypeHangul":   1,
-            "FaceNameSymbol":   name, "FontTypeSymbol":   1,
-            "FaceNameOther":    name, "FontTypeOther":    1,
-            "FaceNameJapanese": name, "FontTypeJapanese": 1,
-            "FaceNameHanja":    name, "FontTypeHanja":    1,
-            "FaceNameLatin":    name, "FontTypeLatin":    1,
+            "FaceNameUser":     name, "FontTypeUser":     0,
+            "FaceNameHangul":   name, "FontTypeHangul":   0,
+            "FaceNameSymbol":   name, "FontTypeSymbol":   0,
+            "FaceNameOther":    name, "FontTypeOther":    0,
+            "FaceNameJapanese": name, "FontTypeJapanese": 0,
+            "FaceNameHanja":    name, "FontTypeHanja":    0,
+            "FaceNameLatin":    name, "FontTypeLatin":    0,
             "Height":           height,
         })
         apply_err = ""
