@@ -123,10 +123,9 @@ def set_font_humanmyongjo(hwp: Any, size_pt: float, bold: bool = False) -> None:
     출처: reference/tool2/_unpacked/한컴라이브러리_decompiled.py:1014-1034
     (CLAUDE.md §3.2 — tool2 시각 spec authority).
 
-    7 언어면 별 face name 이 다름 + FontType=2 (HFT 강제). 한 면이라도 망가지면
-    영문/한자 혼용 부분의 시각 동등성이 깨짐. 한/글 GUI 의 'TT휴먼명조' /
-    'TH휴먼명조' 라벨은 face name 이 아니라 font type 의 시각 marker — COM API
-    는 plain '휴먼명조' + FontType=2 로 받음.
+    7 언어면 별 face name 이 다름 + FontType=2 (HFT 강제). tool2 패턴은
+    Height·Bold 키를 *같은* Execute 에 끼우지 않고 별도 호출로 분리하므로,
+    여기서도 face/type 만 한 번에 set 하고 Height 는 별개 Execute 로.
     """
     set_param(hwp, "CharShape", {
         "FaceNameHangul":   "휴먼명조",   "FontTypeHangul":   2,
@@ -136,37 +135,43 @@ def set_font_humanmyongjo(hwp: Any, size_pt: float, bold: bool = False) -> None:
         "FaceNameJapanese": "한양신명조", "FontTypeJapanese": 2,
         "FaceNameHanja":    "한양신명조", "FontTypeHanja":    2,
         "FaceNameLatin":    "HCI Poppy",  "FontTypeLatin":    2,
-        "Height":           int(size_pt * 100),
-        "Bold":             1 if bold else 0,
     })
+    set_param(hwp, "CharShape", {"Height": int(size_pt * 100)})
+    if bold:
+        hwp.HAction.Run("CharShapeBold")
 
 
 def set_font(hwp: Any, font: str, size_pt: float, bold: bool = False) -> None:
-    """
-    폰트·크기·Bold 일괄 적용. 한/글의 7개 언어 면 모두 지정.
-    Bold 는 CharShape의 Bold 항목으로.
+    """폰트·크기 일괄 적용 (tool2 `폰트()` 메서드 정확 복제 + Height 분리).
 
-    ★ font == '휴먼명조' 면 tool2 권위 spec (set_font_humanmyongjo) 으로 dispatch.
-    이 한 곳만 거치면 templates default · realtime UI · 모든 호출 경로가 자동으로
-    7면 매핑 + HFT 보장. CLAUDE.md §3.2 시각 동등성 단일 진입점.
+    출처 (face/type spec): tool2 한컴라이브러리_decompiled.py:919-939 `폰트()`.
+    출처 (Height 분리):     tool2 한컴라이브러리_decompiled.py:130-137 `글자크기()`.
+
+    ★ 패치 이력 — 직전엔 7면 + FontType=0 + Height + Bold 를 한 Execute 로
+    묶어서 한/글 2018 가 ParameterSet 검증에서 거부 (Execute 가 False 반환,
+    통째 무시 → 사용자 시각 변경 없음). tool2 권위 패턴은:
+      ① FontType*=1 (TTF) 명시 — `0` (don't care) 비표준
+      ② Bold 키 안 박음 — selection 의 Bold 보존, 필요시 CharShapeBold Run
+      ③ Height 는 별도 Execute — 한 호출에 키 너무 많으면 거부 가능
+    이 3개 합쳐서 회복.
+
+    ★ font == '휴먼명조' 면 set_font_humanmyongjo (HFT FontType=2) 로 dispatch.
     """
     if font == "휴먼명조":
         set_font_humanmyongjo(hwp, size_pt, bold=bold)
         return
-    # FontType* = 0 (don't care) — 한/글이 TTF/HFT 자동 매칭. 1 (TTF 강제) 로 두면
-    # 폐쇄망 등 HFT-only 환경에서 face name 매칭 실패 → readback '' 사고. API 정의
-    # (CharShape ParameterSet): 0=don't care, 1=TTF, 2=HFT.
     set_param(hwp, "CharShape", {
-        "FaceNameUser":     font, "FontTypeUser":     0,
-        "FaceNameHangul":   font, "FontTypeHangul":   0,
-        "FaceNameSymbol":   font, "FontTypeSymbol":   0,
-        "FaceNameOther":    font, "FontTypeOther":    0,
-        "FaceNameJapanese": font, "FontTypeJapanese": 0,
-        "FaceNameHanja":    font, "FontTypeHanja":    0,
-        "FaceNameLatin":    font, "FontTypeLatin":    0,
-        "Height": int(size_pt * 100),
-        "Bold":   1 if bold else 0,
+        "FaceNameUser":     font, "FontTypeUser":     1,
+        "FaceNameSymbol":   font, "FontTypeSymbol":   1,
+        "FaceNameOther":    font, "FontTypeOther":    1,
+        "FaceNameJapanese": font, "FontTypeJapanese": 1,
+        "FaceNameHanja":    font, "FontTypeHanja":    1,
+        "FaceNameLatin":    font, "FontTypeLatin":    1,
+        "FaceNameHangul":   font, "FontTypeHangul":   1,
     })
+    set_param(hwp, "CharShape", {"Height": int(size_pt * 100)})
+    if bold:
+        hwp.HAction.Run("CharShapeBold")
 
 
 def set_font_size(hwp: Any, pt: float) -> None:
