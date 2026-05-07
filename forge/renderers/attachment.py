@@ -32,8 +32,11 @@ class AttachmentRenderer(ElementRenderer):
         s = self.spec
         hwp = self.hwp
 
-        # 페이지 break — [붙임]은 항상 새 페이지에서 시작
-        p.run(hwp, "PageBreak")
+        # 페이지 break — [붙임]은 항상 새 페이지에서 시작.
+        # ★ 액션 이름 권위: hwp-api-mcp id=15 'BreakPage' (쪽 나누기). tool2
+        # 디컴파일도 모두 'BreakPage' 사용 (16개 인스턴스). 'PageBreak' 는
+        # HWP API 에 없는 이름 — Run() 이 silent fail 함.
+        p.run(hwp, "BreakPage")
 
         # 라벨 텍스트
         label = f"붙임 {number}" if number is not None else "붙임"
