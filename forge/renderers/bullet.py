@@ -6,7 +6,9 @@ tool2 매핑:
   - L3·L4 = tool2 본문에는 없음. Forge 자체 정의 (templates.py).
 
 마커 뒤 `(...)` prefix(개요/요약 등) 가 있으면 그 부분만 다른 폰트
-(`TT HY울릉도M`) 로 강조. L1~L4 모든 글머리에 동일 적용.
+(`spec.bullet_summary_font`, default `HY울릉도M`) 로 강조. L1~L4 모든 글머리
+공통. 변환 시점에 realtime_tab var_font4 (hotkey G) 가 SSOT 로 주입되어
+override 됨.
 """
 from __future__ import annotations
 
@@ -18,9 +20,6 @@ from .base import ElementRenderer
 
 class BulletRenderer(ElementRenderer):
     """본문 글머리 1~4단계 렌더링."""
-
-    # 마커 뒤 `(...)` prefix 강조 폰트 — bullet 4단계 모두 공통.
-    SUMMARY_FONT = "TT HY울릉도M"
 
     def render(
         self,
@@ -53,9 +52,10 @@ class BulletRenderer(ElementRenderer):
         p.insert_text(hwp, bs.out_glyph)
         p.insert_fixed_space(hwp, bs.fixed_post)
 
-        # 마커 뒤 `(...)` 강조 — TT HY울릉도M 으로. L1~L4 공통.
+        # 마커 뒤 `(...)` 강조 — spec.bullet_summary_font 로. L1~L4 공통.
+        # crop size 는 bullet level 의 size_pt 그대로 따라감.
         if summary:
-            p.set_font(hwp, self.SUMMARY_FONT, bs.size_pt, bold=bs.bold)
+            p.set_font(hwp, self.spec.bullet_summary_font, bs.size_pt, bold=bs.bold)
             p.insert_text(hwp, f"({summary}) ")
             # 본문은 원래 폰트로 복귀
             p.set_font(hwp, bs.font, bs.size_pt, bold=bs.bold)

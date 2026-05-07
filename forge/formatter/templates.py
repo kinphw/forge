@@ -50,6 +50,16 @@ class ReportSpec:
     margins: PageMargins = field(default_factory=PageMargins)
     line_spacing_default: int = 150     # 본문·제목·stamp 모두 일괄 150%
 
+    # 비빈 노드 사이 자동 prepend 되는 빈 단락의 글자 크기 (pt)
+    # — hotkey D (var_blank_size) 와 동일 의미. 변환 시점에 realtime_tab
+    # var_blank_size 가 SSOT 로 주입되어 override 됨.
+    blank_para_pt: float = 8.0
+
+    # 글머리 마커 직후 `(요약)` prefix 강조 폰트 — hotkey G (var_font4) 와
+    # 동일. 변환 시점에 realtime_tab var_font4 가 SSOT 로 주입.
+    # 크기는 bullet level 의 size_pt 그대로 따라감 (현재 4단계 모두 15pt).
+    bullet_summary_font: str = "HY울릉도M"
+
     # 대제목 (노란 박스)
     title_font: str = "HY헤드라인M"
     title_size_pt: float = 17.0
@@ -78,7 +88,8 @@ class ReportSpec:
     subsection_border_rgb: tuple[int, int, int] = (62, 87, 165)       # 진파랑
     subsection_box_height_mm: float = 8.7
     subsection_marker_width_mm: float = 7.5
-    subsection_content_width_mm: float = 49.0
+    # subsection_content_width_mm: float = 49.0
+    subsection_content_width_mm: float = 150.0 # 충분히 넓게 잡아서 줄바꿈 안 생기도록 (tool2 는 49mm → 100mm로 확장)
 
     # ─── 본문 글머리 4단계 (□ ○ - ·) ───
     # 사용자 명시: 모두 휴먼명조 15pt 동일, 깊이만 균등 누진.

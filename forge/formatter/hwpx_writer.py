@@ -44,7 +44,7 @@ class NoSelectionError(RuntimeError):
 def generate_hwpx_via_com(
     hwp: Any,
     doc: MarkdownDocument,
-    out_path: str,
+    out_path: Optional[str] = None,
     spec: ReportSpec = REPORT1_SPEC,
     log: callable = print,
     mode: str = "new",
@@ -58,7 +58,10 @@ def generate_hwpx_via_com(
     Args:
         hwp:      살아있는 한/글 COM 인스턴스 (HwpSession.hwp)
         doc:      파싱된 markdown
-        out_path: 저장할 .hwpx 절대 경로 ("new" 모드만)
+        out_path: 저장할 .hwpx 절대 경로 ("new" 모드 + 즉시 저장 시).
+                  None/빈 문자열 → 저장 단계 skip — caller 가 변환 후 직접
+                  save_as_hwpx() 호출 (사용자가 결과를 보고 파일명을 지정하는
+                  지연-저장 패턴).
         spec:     보고서 양식 spec
         log:      진행 상황 콜백
         mode:     "new" | "cursor"
@@ -80,12 +83,13 @@ def generate_hwpx_via_com(
             apply_indent_align 과 동일하게 "new" 모드에서만 동작.
 
     Returns:
-        "new" 모드: 저장된 파일 절대 경로
-        "cursor" 모드: 빈 문자열
+        "new" 모드 + out_path 지정: 저장된 파일 절대 경로
+        "new" 모드 + out_path None : 빈 문자열 (저장 미수행)
+        "cursor" 모드               : 빈 문자열
     """
     # ─── 모드별 사전 설정 ───────────────────────────
     if mode == "new":
-        out_path = os.path.abspath(out_path)
+        out_path = os.path.abspath(out_path) if out_path else ""
         # 운영 정책: 사용자가 한/글을 먼저 띄운 상태에서만 작동 (allow_spawn=False).
         # → 항상 기존 attach 케이스. Run("FileNew") 로 새 문서 분리.
         # XHwpDocuments.Add() 는 doc 객체는 생기지만 HAction cursor target 이
@@ -130,31 +134,49 @@ def generate_hwpx_via_com(
     # (Bold 인라인 토큰 `__X__` 은 primitives.insert_text 가 렌더링 시점에 처리)
 
     # ─── STAGE 2 후처리 (new 모드만) ─────────────────
-    # 순서: 자간조정 → 들여쓰기 정렬.
-    # 사용자 검증 (2026-04-27): 들여쓰기 먼저 하면 자간조정으로 글자 너비
-    # 변경 후 본문 시작 위치가 미세하게 달라져 정렬이 틀어짐. 자간을 먼저
-    # 확정한 뒤 들여쓰기 정렬해야 본문 첫 글자 위치가 정확히 잡힘.
+    # 순서: 들여쓰기 → 자간 → 들여쓰기 (3단계). hotkey Q '자동 정렬' 과 동일.
+    #
+    # 사용자 검증 (2026-05-06, v0.2.2 hotkey Q):
+    #   - 인덴트 0 상태에서 자간 → 인덴트 적용하면 wrap 점이 옆으로 밀려
+    #     자간 보정값이 무의미해짐 (자간 효과 죽음).
+    #   - 인덴트 → 자간 만 하면 자간 후 본문 위치 미세 drift 로 인덴트가
+    #     살짝 어긋남.
+    #   - 1차 인덴트로 wrap 기준 고정 → 자간 보정 → 2차 인덴트로 drift
+    #     보정 — 두 인덴트는 역할이 다른 별개 호출.
+    #
+    # 직전(2026-04-27) 의 '자간 → 인덴트' 결론은 hotkey Q 갱신으로 폐기.
+    # 'md 변환은 개별 작업(realtime_tab) 의 권위 결론을 따른다' 정책.
     # cursor 모드는 skip — 기존 문서 뒤 추가 시나리오 보호.
     if mode == "new":
+        if apply_indent_align:
+            log("[STAGE 2] (1/3) 들여쓰기 정렬 — wrap 기준 확정")
+            try:
+                align_left_indent(hwp)
+            except Exception as e:
+                log(f"  ⚠ 1차 들여쓰기 정렬 중단: {e}")
         if apply_kerning:
-            log("[STAGE 2] 자간조정 (어절 잘림 방지, 줄당 ±15회)")
+            log("[STAGE 2] (2/3) 자간조정 — 어절 잘림 방지 (줄당 ±15회)")
             try:
                 adjust_kerning_to_avoid_word_break(hwp)
             except Exception as e:
                 log(f"  ⚠ 자간조정 중단: {e}")
         if apply_indent_align:
-            log("[STAGE 2] 들여쓰기 정렬 (bullet/annotation 라인)")
+            log("[STAGE 2] (3/3) 들여쓰기 재정렬 — 자간 drift 보정")
             try:
                 align_left_indent(hwp)
             except Exception as e:
-                log(f"  ⚠ 들여쓰기 정렬 중단: {e}")
+                log(f"  ⚠ 2차 들여쓰기 정렬 중단: {e}")
 
     # ─── 모드별 저장 ────────────────────────────────
     if mode == "new":
-        log(f"[STAGE 1] hwpx 저장: {out_path}")
-        _save_as_hwpx(hwp, out_path)
-        log("[STAGE 1] ✔ 완료")
-        return out_path
+        if out_path:
+            log(f"[STAGE 1] hwpx 저장: {out_path}")
+            save_as_hwpx(hwp, out_path)
+            log("[STAGE 1] ✔ 완료")
+            return out_path
+        else:
+            log("[STAGE 1] ✔ 변환 완료 — 저장은 caller 책임 (지연-저장)")
+            return ""
     else:
         log("[STAGE 1] ✔ 커서 위치 삽입 완료 (저장은 한/글에서 직접)")
         return ""
@@ -193,7 +215,7 @@ def _dispatch_nodes(
     """
     def _emit_blank_para() -> None:
         try:
-            p.set_font_size(hwp, 8)
+            p.set_font_size(hwp, spec.blank_para_pt)
             p.break_para(hwp)
         except Exception:
             pass
@@ -242,9 +264,12 @@ def _dispatch_one(hwp: Any, node: Node, spec: ReportSpec) -> None:
     if node.type == "bullet":
         level = _BULLET_LEVELS.get(node.marker)
         if level is None:
-            # 마커 없는 본문 — 그냥 텍스트
-            p.insert_text(hwp, node.text)
-            p.break_para(hwp)
+            # 마커 없는 본문 — Sentinel 이 [붙임] 다음 줄글 prose 를 마커 없이
+            # 채우는 케이스 등. spec.annotation (hotkey S = 맑은 고딕 12pt SSOT)
+            # 폰트/크기 적용 — 직전 단락의 폰트가 그대로 흐르는 사고 방지.
+            # indent 는 직전 글머리 indent 가 잔류해 들여쓰기 안 풀리는 사고
+            # 회피 위해 0 으로 reset. fixed_pre/post / 마커 글리프는 없음.
+            _emit_unmarkered_prose(hwp, spec, node.text)
             return
         BulletRenderer(hwp, spec).render(
             level=level,
@@ -271,18 +296,37 @@ def _dispatch_one(hwp: Any, node: Node, spec: ReportSpec) -> None:
             AttachmentRenderer(hwp, spec).render(node.callout_number, lines)
         return
 
-    # 알 수 없는 타입 — 그냥 텍스트
+    # 알 수 없는 타입 — 마커 없는 본문과 동일 처리 (annotation 폰트로)
     if node.text:
-        p.insert_text(hwp, node.text)
-        p.break_para(hwp)
+        _emit_unmarkered_prose(hwp, spec, node.text)
+
+
+def _emit_unmarkered_prose(hwp: Any, spec: ReportSpec, text: str) -> None:
+    """마커 없는 줄글 단락 — annotation spec(hotkey S, var_font2 SSOT) 으로 emit.
+
+    [붙임] 다음 prose, 또는 알 수 없는 타입의 fallback 경로에서 호출. 직전
+    단락의 글머리 폰트/들여쓰기가 그대로 새는 사고를 막기 위해 명시적으로
+    annotation spec 으로 reset.
+    """
+    a = spec.annotation
+    p.set_font(hwp, a.font, a.size_pt, bold=False)
+    p.set_line_spacing(hwp, a.line_spacing)
+    p.set_indent(hwp, 0.0)
+    p.align(hwp, "justify")
+    p.insert_text(hwp, text)
+    p.break_para(hwp)
 
 
 # ============================================================================
 # 저장
 # ============================================================================
 
-def _save_as_hwpx(hwp: Any, out_path: str) -> None:
-    """SaveAs .hwpx — Windows 경로 형식, format='HWPX' 우선 시도."""
+def save_as_hwpx(hwp: Any, out_path: str) -> None:
+    """SaveAs .hwpx — Windows 경로 형식, format='HWPX' 우선 시도.
+
+    public 함수 — generate_hwpx_via_com 내부 호출 + 변환 후 지연-저장 시
+    markdown_tab 같은 caller 가 직접 호출 (out_path=None 으로 변환 끝낸 뒤).
+    """
     out_path = out_path.replace("/", "\\")
     try:
         hwp.SaveAs(out_path, "HWPX", "")

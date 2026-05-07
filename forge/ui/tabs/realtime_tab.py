@@ -60,16 +60,20 @@ class RealtimeTab:
 
         # ─── 활성 그룹 — 현재 문단 단위 적용 ───────────────────
         # 버튼 vertical stack (좌측) + meta controls (우측 상단).
+        # 3 그룹으로 묶고 ttk.Separator 로 시각적 구분 (row 2·8).
+        # 그룹 2 (폰트) 는 키보드 A/S/D/F/G 순서로 정렬됨.
         # 행 0: 자동 정렬 (들·자·들)               — 메인 동선         hk Q
         # 행 1: 어절 1개 끌어올림                  — 보조 동선         hk W
-        # 행 2: 폰트·크기 (본문, 휴먼명조 / 15)    — set_font 자동 dispatch  hk A
-        # 행 3: 폰트·크기 (주석, 맑은 고딕 / 12)                          hk S
-        # 행 4: 폰트·크기 (헤드라인, HY헤드라인M / 15)                    hk F
-        # 행 5: 폰트·크기 (울릉도, HY울릉도M / 15)                        hk G
-        # 행 6: 현재 문단 글자크기 (빈줄용, 사용자 지정 pt)               hk D
-        # 행 7: 자간 0 초기화 (선택/문단)                                 hk Z
-        # 행 8: 선택 영역 → 마크다운 변환                                 hk X
-        # 행 9·10: 들여쓰기 정렬·자간조정          — 개별기능 표시 시만
+        # 행 2: ─────── separator ───────
+        # 행 3: 폰트·크기 (본문, 휴먼명조 / 15)    — set_font 자동 dispatch  hk A
+        # 행 4: 폰트·크기 (주석, 맑은 고딕 / 12)                          hk S
+        # 행 5: 현재 문단 글자크기 (빈줄용, 사용자 지정 pt)               hk D
+        # 행 6: 폰트·크기 (헤드라인, HY헤드라인M / 15)                    hk F
+        # 행 7: 폰트·크기 (울릉도, HY울릉도M / 15)                        hk G
+        # 행 8: ─────── separator ───────
+        # 행 9: 자간 0 초기화 (선택/문단)                                 hk Z
+        # 행 10: 선택 영역 → 마크다운 변환                                hk X
+        # 행 11·12: 들여쓰기 정렬·자간조정         — 개별기능 표시 시만
         active_group = TtkLabelFrame(
             self.frame,
             text="🧪 현재 캐럿이 위치한 곳(문단) 또는 선택영역에만 적용됨",
@@ -163,6 +167,14 @@ class RealtimeTab:
         # 빈줄용 글자크기 — 행 6 button. 사용자가 칸에서 자유롭게 변경 가능.
         self.var_blank_size = tk.StringVar(value="8")
 
+        # 그룹 구분선 — pady 로 위·아래 여백을 더 넣어 시각적 분리 강조.
+        # columnspan=3 으로 [버튼][지정서식][단축키] 3 컬럼 폭 전체에 걸침.
+        def _group_separator(row: int) -> None:
+            ttk.Separator(grid, orient="horizontal").grid(
+                row=row, column=0, columnspan=3, sticky="ew", pady=(6, 6),
+            )
+
+        # ─── 그룹 1: 정렬·자간 (행 0~1) ─────────────────────────
         # ─── 행 0: 자동 정렬 ────────────────────────────────────
         btn1 = ttk.Button(
             grid, text="자동 정렬 (들·자·들)",
@@ -190,64 +202,40 @@ class RealtimeTab:
         self._build_hotkey_widget(hk2, hk_id=2)
         hk2.grid(row=1, column=2, sticky="w")
 
-        # ─── 행 2: 폰트·크기 (본문) — 휴먼명조 15pt 등 본문체 ────
+        # ─── 구분선 1: 정렬/자간 ↔ 폰트 ────────────────────────
+        _group_separator(row=2)
+
+        # ─── 그룹 2: 폰트·크기 5종 (행 3~7) ─────────────────────
+        # ─── 행 3: 폰트·크기 (본문) — 휴먼명조 15pt 등 본문체 ────
         btn3 = ttk.Button(
             grid, text="폰트·크기 (본문)",
             command=lambda: self._apply_font(self.var_font1.get(), self.var_size1.get()),
             width=24,
         )
-        btn3.grid(row=2, column=0, sticky="w", pady=2, padx=(0, 8))
+        btn3.grid(row=3, column=0, sticky="w", pady=2, padx=(0, 8))
         Tooltip(btn3, "선택영역 폰트·크기 (본문) — 우측 입력값 적용")
         font_cluster_1 = self._make_font_cluster(grid, self.var_font1, self.var_size1)
-        font_cluster_1.grid(row=2, column=1, sticky="w", padx=(0, 8))
+        font_cluster_1.grid(row=3, column=1, sticky="w", padx=(0, 8))
         hk3 = ttk.Frame(grid)
         self._build_hotkey_widget(hk3, hk_id=3)
-        hk3.grid(row=2, column=2, sticky="w")
+        hk3.grid(row=3, column=2, sticky="w")
 
-        # ─── 행 3: 폰트·크기 (주석) — 맑은 고딕 12pt 등 주석체 ────
+        # ─── 행 4: 폰트·크기 (주석) — 맑은 고딕 12pt 등 주석체 ────
         btn4 = ttk.Button(
             grid, text="폰트·크기 (주석)",
             command=lambda: self._apply_font(self.var_font2.get(), self.var_size2.get()),
             width=24,
         )
-        btn4.grid(row=3, column=0, sticky="w", pady=2, padx=(0, 8))
+        btn4.grid(row=4, column=0, sticky="w", pady=2, padx=(0, 8))
         Tooltip(btn4, "선택영역 폰트·크기 (주석) — 우측 입력값 적용")
         font_cluster_2 = self._make_font_cluster(grid, self.var_font2, self.var_size2)
-        font_cluster_2.grid(row=3, column=1, sticky="w", padx=(0, 8))
+        font_cluster_2.grid(row=4, column=1, sticky="w", padx=(0, 8))
         hk4 = ttk.Frame(grid)
         self._build_hotkey_widget(hk4, hk_id=4)
-        hk4.grid(row=3, column=2, sticky="w")
+        hk4.grid(row=4, column=2, sticky="w")
 
-        # ─── 행 4: 폰트·크기 (헤드라인) — HY헤드라인M 15pt ──
-        btn5 = ttk.Button(
-            grid, text="폰트·크기 (헤드라인)",
-            command=lambda: self._apply_font(self.var_font3.get(), self.var_size3.get()),
-            width=24,
-        )
-        btn5.grid(row=4, column=0, sticky="w", pady=2, padx=(0, 8))
-        Tooltip(btn5, "선택영역 폰트·크기 (헤드라인) — 우측 입력값 적용")
-        font_cluster_3 = self._make_font_cluster(grid, self.var_font3, self.var_size3)
-        font_cluster_3.grid(row=4, column=1, sticky="w", padx=(0, 8))
-        hk5 = ttk.Frame(grid)
-        self._build_hotkey_widget(hk5, hk_id=5)
-        hk5.grid(row=4, column=2, sticky="w")
-
-        # ─── 행 5: 폰트·크기 (울릉도) — HY울릉도M 15pt ──
-        # 별도 강조용 폰트. 헤드라인과 거의 동일한 동선이지만 독립 var/hotkey.
-        btn5b = ttk.Button(
-            grid, text="폰트·크기 (울릉도)",
-            command=lambda: self._apply_font(self.var_font4.get(), self.var_size4.get()),
-            width=24,
-        )
-        btn5b.grid(row=5, column=0, sticky="w", pady=2, padx=(0, 8))
-        Tooltip(btn5b, "선택영역 폰트·크기 (울릉도) — 우측 입력값 적용")
-        font_cluster_4 = self._make_font_cluster(grid, self.var_font4, self.var_size4)
-        font_cluster_4.grid(row=5, column=1, sticky="w", padx=(0, 8))
-        hk6 = ttk.Frame(grid)
-        self._build_hotkey_widget(hk6, hk_id=6)
-        hk6.grid(row=5, column=2, sticky="w")
-
-        # ─── 행 6: 현재 문단 글자크기 (빈줄용, 사용자 지정) ────
+        # ─── 행 5: 현재 문단 글자크기 (빈줄용, 사용자 지정) — D ────
+        # A/S/D/F/G 키보드 순서로 정렬. D 가 F·G 앞에 위치.
         # 사용자가 [Entry] pt 칸에 원하는 크기를 입력 → 클릭/단축키 시 그 값으로 적용.
         # 기본 8pt. 한/글에서 빈줄 자간 꼬임 회피용 작은 크기 세팅 동선.
         btn6 = ttk.Button(
@@ -255,27 +243,60 @@ class RealtimeTab:
             command=self._run_paragraph_size_8,
             width=24,
         )
-        btn6.grid(row=6, column=0, sticky="w", pady=2, padx=(0, 8))
+        btn6.grid(row=5, column=0, sticky="w", pady=2, padx=(0, 8))
         Tooltip(btn6, "빈줄 용 글자크기 설정 (자간 꼬임 회피)")
         size_cluster = self._make_size_cluster(grid, self.var_blank_size)
-        size_cluster.grid(row=6, column=1, sticky="w", padx=(0, 8))
+        size_cluster.grid(row=5, column=1, sticky="w", padx=(0, 8))
         hk7 = ttk.Frame(grid)
         self._build_hotkey_widget(hk7, hk_id=7)
-        hk7.grid(row=6, column=2, sticky="w")
+        hk7.grid(row=5, column=2, sticky="w")
 
-        # ─── 행 7: 자간 0 초기화 (선택 영역 또는 현재 문단) ────
+        # ─── 행 6: 폰트·크기 (헤드라인) — HY헤드라인M 15pt — F ──
+        btn5 = ttk.Button(
+            grid, text="폰트·크기 (헤드라인)",
+            command=lambda: self._apply_font(self.var_font3.get(), self.var_size3.get()),
+            width=24,
+        )
+        btn5.grid(row=6, column=0, sticky="w", pady=2, padx=(0, 8))
+        Tooltip(btn5, "선택영역 폰트·크기 (헤드라인) — 우측 입력값 적용")
+        font_cluster_3 = self._make_font_cluster(grid, self.var_font3, self.var_size3)
+        font_cluster_3.grid(row=6, column=1, sticky="w", padx=(0, 8))
+        hk5 = ttk.Frame(grid)
+        self._build_hotkey_widget(hk5, hk_id=5)
+        hk5.grid(row=6, column=2, sticky="w")
+
+        # ─── 행 7: 폰트·크기 (울릉도) — HY울릉도M 15pt — G ──
+        # 별도 강조용 폰트. 헤드라인과 거의 동일한 동선이지만 독립 var/hotkey.
+        btn5b = ttk.Button(
+            grid, text="폰트·크기 (울릉도)",
+            command=lambda: self._apply_font(self.var_font4.get(), self.var_size4.get()),
+            width=24,
+        )
+        btn5b.grid(row=7, column=0, sticky="w", pady=2, padx=(0, 8))
+        Tooltip(btn5b, "선택영역 폰트·크기 (울릉도) — 우측 입력값 적용")
+        font_cluster_4 = self._make_font_cluster(grid, self.var_font4, self.var_size4)
+        font_cluster_4.grid(row=7, column=1, sticky="w", padx=(0, 8))
+        hk6 = ttk.Frame(grid)
+        self._build_hotkey_widget(hk6, hk_id=6)
+        hk6.grid(row=7, column=2, sticky="w")
+
+        # ─── 구분선 2: 폰트 ↔ reset/변환 ────────────────────────
+        _group_separator(row=8)
+
+        # ─── 그룹 3: reset / 마크다운 변환 (행 9~10) ─────────────
+        # ─── 행 9: 자간 0 초기화 (선택 영역 또는 현재 문단) ────
         btn7 = ttk.Button(
             grid, text="자간 0 초기화 (선택/문단)",
             command=self._run_kerning_reset,
             width=24,
         )
-        btn7.grid(row=7, column=0, sticky="w", pady=2, padx=(0, 8))
+        btn7.grid(row=9, column=0, sticky="w", pady=2, padx=(0, 8))
         Tooltip(btn7, "해당 문단 자간 0으로 초기화 (자간 꼬였을 때)")
         hk8 = ttk.Frame(grid)
         self._build_hotkey_widget(hk8, hk_id=8)
-        hk8.grid(row=7, column=2, sticky="w")
+        hk8.grid(row=9, column=2, sticky="w")
 
-        # ─── 행 8: 선택 영역 → 마크다운 변환 (영역 필수) ────────
+        # ─── 행 10: 선택 영역 → 마크다운 변환 (영역 필수) ────────
         # 한/글 자체에서 md 본문을 타이핑한 뒤 영역 선택 → 단축키 호출.
         # 선택 영역 plain text 를 추출해 cursor 모드로 그 자리에 변환 출력.
         # Tk Text 의 한글 IME 매끄럽지 않음 회피 — 한/글 IME 가 매끄럽다.
@@ -284,12 +305,12 @@ class RealtimeTab:
             command=self._run_md_convert_selection,
             width=24,
         )
-        btn8.grid(row=8, column=0, sticky="w", pady=2, padx=(0, 8))
+        btn8.grid(row=10, column=0, sticky="w", pady=2, padx=(0, 8))
         Tooltip(btn8,
                 "한/글에서 영역 선택 후 호출 — 선택 텍스트를 마크다운으로 해석해 변환 결과로 대체")
         hk9 = ttk.Frame(grid)
         self._build_hotkey_widget(hk9, hk_id=9)
-        hk9.grid(row=8, column=2, sticky="w")
+        hk9.grid(row=10, column=2, sticky="w")
 
         # ─── 행 8·9: 개별 진단 버튼 (체크박스 토글, 기본 숨김) ──
         # 토글 시 grid_remove() / grid() 로 노출 제어.
@@ -376,19 +397,19 @@ class RealtimeTab:
         )
 
     def hotkey_font_1(self) -> None:
-        """Ctrl+Shift+A — 행 3 폰트/크기 적용 (StringVar 의 현재값 그대로)."""
+        """Ctrl+Shift+A — 행 3 본문 폰트/크기 적용 (var_font1 = 휴먼명조)."""
         self._apply_font(self.var_font1.get(), self.var_size1.get())
 
     def hotkey_font_2(self) -> None:
-        """Ctrl+Shift+S — 행 4 폰트/크기 적용."""
+        """Ctrl+Shift+S — 행 4 주석 폰트/크기 적용 (var_font2 = 맑은 고딕)."""
         self._apply_font(self.var_font2.get(), self.var_size2.get())
 
     def hotkey_headline_font(self) -> None:
-        """Ctrl+Shift+F — 행 4 헤드라인 폰트/크기 적용 (var_font3 = HY헤드라인M)."""
+        """Ctrl+Shift+F — 행 6 헤드라인 폰트/크기 적용 (var_font3 = HY헤드라인M)."""
         self._apply_font(self.var_font3.get(), self.var_size3.get())
 
     def hotkey_uleungdo_font(self) -> None:
-        """Ctrl+Shift+G — 행 5 울릉도 폰트/크기 적용 (var_font4 = HY울릉도M)."""
+        """Ctrl+Shift+G — 행 7 울릉도 폰트/크기 적용 (var_font4 = HY울릉도M)."""
         self._apply_font(self.var_font4.get(), self.var_size4.get())
 
     def hotkey_paragraph_size_8(self) -> None:
@@ -402,6 +423,76 @@ class RealtimeTab:
     def hotkey_md_convert_selection(self) -> None:
         """Ctrl+Shift+X — 한/글 선택 영역을 마크다운으로 해석해 그 자리에 변환 출력."""
         self._run_md_convert_selection()
+
+    # ----------------------------------------- spec override (SSOT)
+    def apply_overrides_to_spec(self, spec):
+        """realtime_tab 의 4종 폰트 cluster + var_blank_size 를 spec 에 주입.
+
+        '개별 작업 (realtime_tab) 이 SSOT — 마크다운 변환은 따라감' 정책에
+        따라 변환 진입점 (markdown_tab._convert_worker) 이 호출. 입력 spec
+        은 dataclasses.replace 로 깊은 사본 생성하지 않고 직접 mutate (state.spec
+        은 settings_tab 가 동일한 참조를 사용하므로 mutate 시 거기서도 즉시
+        반영).
+
+        매핑 규칙:
+          var_font1 / var_size1 (본문)     → bullets[*].font·size_pt
+                                            + conclusion_font·size_pt
+                                            + date_font (face 만, size 는 별도)
+          var_font2 / var_size2 (주석)     → annotation.font·size_pt
+          var_font3            (헤드라인) → title_font / section_title_font /
+                                            subsection_font / note_header_font
+                                            (face 만 — 각 사이즈는 위계상 별도)
+          var_font4            (울릉도)   → bullet_summary_font
+          var_blank_size                  → blank_para_pt
+
+        파싱 실패 (사용자가 size 칸에 잘못된 값 입력) 시 그 한 항목만 skip
+        하고 나머지는 진행 — 변환 자체는 살림.
+        """
+        from dataclasses import replace as _dc_replace
+        from forge.formatter.templates import BulletStyle
+
+        def _try_float(v: str, fallback: float) -> float:
+            try:
+                f = float(str(v).strip())
+                return f if f > 0 else fallback
+            except (ValueError, TypeError):
+                return fallback
+
+        font1 = (self.var_font1.get() or "").strip() or "휴먼명조"
+        size1 = _try_float(self.var_size1.get(), 15.0)
+        font2 = (self.var_font2.get() or "").strip() or "맑은 고딕"
+        size2 = _try_float(self.var_size2.get(), 12.0)
+        font3 = (self.var_font3.get() or "").strip() or "HY헤드라인M"
+        font4 = (self.var_font4.get() or "").strip() or "HY울릉도M"
+        blank_pt = _try_float(self.var_blank_size.get(), 8.0)
+
+        # 본문 글머리 4단계 — face/size 둘 다 var_font1/var_size1 로 통일.
+        # 다른 필드(indent_pt, fixed_pre 등) 는 spec 의 기존 값 유지.
+        spec.bullets = [
+            _dc_replace(b, font=font1, size_pt=size1) for b in spec.bullets
+        ]
+        # 주석 — face/size 둘 다 var_font2/var_size2 로.
+        spec.annotation = _dc_replace(spec.annotation, font=font2, size_pt=size2)
+
+        # 결론 / 일자 stamp — 본문 폰트와 동일 face. 결론 size 는 본문과
+        # 동일(15pt 기본) 이라 size 도 var_size1 로 따라감.
+        spec.conclusion_font = font1
+        spec.conclusion_size_pt = size1
+        spec.date_font = font1  # size 는 spec.date_size_pt (12pt) 그대로
+
+        # 헤드라인 face — 사이즈는 위계상 spec 별도값 유지.
+        spec.title_font = font3
+        spec.section_title_font = font3
+        spec.subsection_font = font3
+        spec.note_header_font = font3
+
+        # 글머리 (요약) 강조 폰트
+        spec.bullet_summary_font = font4
+
+        # 비빈 노드 사이 자동 빈 단락
+        spec.blank_para_pt = blank_pt
+
+        return spec
 
     # ----------------------------------------- 설치 폰트 목록 (lazy + 캐시)
     def _get_installed_fonts(self) -> list[str]:
@@ -556,11 +647,12 @@ class RealtimeTab:
         해제 시: grid_remove() — grid 에서 빠지지만 내부 grid 옵션은 보존되어
         재체크 시 원래 위치에 grid() 로 즉시 복원 가능.
         """
+        # row 11·12 — 메인 grid 의 행 0~10 + 구분선 2개 다음.
         if self.var_show_individual.get():
             self.btn_indent_only.grid(
-                row=9, column=0, sticky="w", pady=2, padx=(0, 8))
+                row=11, column=0, sticky="w", pady=2, padx=(0, 8))
             self.btn_kerning_only.grid(
-                row=10, column=0, sticky="w", pady=2, padx=(0, 8))
+                row=12, column=0, sticky="w", pady=2, padx=(0, 8))
         else:
             self.btn_indent_only.grid_remove()
             self.btn_kerning_only.grid_remove()
