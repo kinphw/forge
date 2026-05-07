@@ -20,6 +20,7 @@ tool1 소스 (reference/tool1/hwp_auto.py:172-237) 와의 차이:
 """
 from __future__ import annotations
 
+import unicodedata
 from typing import Any, Callable, Optional
 
 from ._range import apply_per_paragraph
@@ -127,23 +128,50 @@ def _is_skip_marker(word: str) -> bool:
     )
 
 
+_NUMBER_TOKEN_CHARS = frozenset(".()[]{}-")
+
+
 def _is_body_word(c: str) -> bool:
     """
-    본문 워드 판정 — alphabetic char 포함이고 섹션 마커(`가.`/`Ⅰ.`) 아닌 경우.
+    본문 워드 판정 — '순수 번호 토큰 / 섹션 마커 가 아닌 모든 워드' 가 본문.
 
-    원래 tool1 은 "alpha 포함 + '.' 없음" 이었으나 그 `.` 배제 로직이 너무 공격적.
-    한국어 prose 의 `반갑니다.`, `'26.4.19.자로`, `Co.` 등 자연스러운 끝점·중간점이
-    들어간 첫 본문 워드를 skip 하게 되어, 다음 워드 (예: `이`/`것은`) 에 indent 가
-    설정 → 두번째 줄부터 본문 첫 글자보다 한참 오른쪽으로 정렬되는 버그.
+    skip 대상:
+      - _is_section_marker — `1.`, `가.`, `Ⅰ.` 등
+      - 순수 번호 토큰 — 모든 글자가 다음 중 하나로만 구성:
+        digit / 공백 / `.()[]{}-` / Unicode 'No'·'Nl' 카테고리 (① ㉠ Ⅰ 등)
+        예: `(1)`, `①`, `1.2.3`
 
-    번호 토큰 `1.`/`①` 은 alpha 가 없어 자연스럽게 False. `가.`/`Ⅰ.` 는 alpha 가
-    있어 그냥 두면 body 로 잡히므로 _is_section_marker 로 명시 배제.
+    body 인정:
+      - alpha (한글 자모/음절·라틴·한자·일본어 등) 포함
+      - alpha 가 없어도 일반 기호 (§, ※, *, # 등 Punctuation/Symbol) 포함
+        → `§33①`, `※주의`, `* 보고서` 등 한국 보고서의 본문 시작 토큰 보호.
+
+    배경:
+      tool1 의 "alpha 포함 + '.' 없음" 정의는 한국어 prose 의 자연스러운 끝점
+      (`반갑니다.`) 을 skip 하는 사고. alpha-only 정의는 그 사고는 막지만
+      `§33①` 같은 법조문 인용 본문도 skip 해서 indent 를 다음 한글 워드 위치에
+      잡는 새 사고 발생. 이 함수는 "*번호 토큰* 만 skip" 으로 의도를 정확히
+      복원 — 번호도 섹션 마커도 아닌 일반 기호 워드는 본문으로 흡수.
     """
     if not c:
         return False
     if _is_section_marker(c):
         return False
-    return any(ch.isalpha() for ch in c)
+    for ch in c:
+        if ch.isalpha():           # 한글 음절·자모, 라틴, 한자 등
+            return True
+        if ch.isspace():
+            continue
+        if ch.isdigit():           # 일반 숫자 — 번호 토큰의 일부
+            continue
+        if ch in _NUMBER_TOKEN_CHARS:
+            continue
+        cat = unicodedata.category(ch)
+        if cat in ("No", "Nl"):    # ① ㉠ Ⅰ 등 enclosed/letter number
+            continue
+        # 그 외 글자 (Po, So, Sm 등 — §, ※, *, #, +, =, ~ 등) → 본문 기호
+        return True
+    return False
 
 
 def _process_paragraph(hwp: Any, log: LogFn = None) -> None:
