@@ -12,7 +12,7 @@ tool2의 `한컴라이브러리.기본한컴` 411 메서드 중 본 프로젝트
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from ..com_helpers import set_param
 
@@ -177,6 +177,34 @@ def set_font(hwp: Any, font: str, size_pt: float, bold: bool = False) -> None:
 def set_font_size(hwp: Any, pt: float) -> None:
     """폰트 크기만 변경 (Height). 다른 CharShape 항목은 보존."""
     set_param(hwp, "CharShape", {"Height": int(pt * 100)})
+
+
+def set_font_face(hwp: Any, font: str) -> None:
+    """폰트 face 만 변경 (크기 보존). tool2 `폰트(name)` 등가.
+
+    set_font 가 size 까지 받는 묶음 헬퍼인 반면, 본 헬퍼는 face name 만.
+    `휴먼명조` 면 7 면 HFT 매핑, 그 외엔 7 면 TTF (FontType=1).
+    """
+    if font == "휴먼명조":
+        set_param(hwp, "CharShape", {
+            "FaceNameHangul":   "휴먼명조",   "FontTypeHangul":   2,
+            "FaceNameUser":     "명조",       "FontTypeUser":     2,
+            "FaceNameSymbol":   "한양신명조", "FontTypeSymbol":   2,
+            "FaceNameOther":    "한양신명조", "FontTypeOther":    2,
+            "FaceNameJapanese": "한양신명조", "FontTypeJapanese": 2,
+            "FaceNameHanja":    "한양신명조", "FontTypeHanja":    2,
+            "FaceNameLatin":    "HCI Poppy",  "FontTypeLatin":    2,
+        })
+        return
+    set_param(hwp, "CharShape", {
+        "FaceNameUser":     font, "FontTypeUser":     1,
+        "FaceNameSymbol":   font, "FontTypeSymbol":   1,
+        "FaceNameOther":    font, "FontTypeOther":    1,
+        "FaceNameJapanese": font, "FontTypeJapanese": 1,
+        "FaceNameHanja":    font, "FontTypeHanja":    1,
+        "FaceNameLatin":    font, "FontTypeLatin":    1,
+        "FaceNameHangul":   font, "FontTypeHangul":   1,
+    })
 
 
 def set_text_color(hwp: Any, r: int, g: int, b: int) -> None:
@@ -411,3 +439,142 @@ def is_at_line_start(hwp: Any) -> bool:
         return pos.Item("Pos") == 0
     except Exception:
         return True
+
+
+# ============================================================================
+# tool2 레거시 helper — 디컴파일 메서드 1:1 재현용 (templates_tab 에서 호출)
+# ============================================================================
+
+def set_cell_vertical_align(hwp: Any, direction: int = 0) -> None:
+    """현재 셀의 세로 정렬. tool2 `셀세로정렬` 1:1 재현.
+
+    direction: 0=위, 1=가운데, 2=아래.
+
+    출처: tool2 한컴라이브러리_decompiled.py:475-479. flat ParameterSet 이 아니라
+    'TablePropertyDialog' 액션의 중첩 HShapeObject.ShapeTableCell.VertAlign 직접
+    대입 — 'CellVerticalAlign' 액션은 HWP API 에 없음.
+    """
+    try:
+        hwp.HAction.GetDefault("TablePropertyDialog", hwp.HParameterSet.HShapeObject.HSet)
+        hwp.HParameterSet.HShapeObject.ShapeTableCell.VertAlign = int(direction)
+        hwp.HAction.Execute("TablePropertyDialog", hwp.HParameterSet.HShapeObject.HSet)
+    except Exception:
+        pass
+
+
+def set_kerning(hwp: Any, value_pct: int) -> None:
+    """글자 간격 (자간) 설정. tool2 `글자간격(value)` — % 단위 정수."""
+    set_param(hwp, "CharShape", {
+        "SpacingHangul":   value_pct,
+        "SpacingLatin":    value_pct,
+        "SpacingHanja":    value_pct,
+        "SpacingJapanese": value_pct,
+        "SpacingUser":     value_pct,
+        "SpacingSymbol":   value_pct,
+        "SpacingOther":    value_pct,
+    })
+
+
+def set_text_shade(hwp: Any, color: int) -> None:
+    """글자 음영색. tool2 `글자음영(color)` 등가. color 가 0xFFFFFFFF 면 음영 제거."""
+    set_param(hwp, "CharShape", {"ShadeColor": color})
+
+
+def measure_para_margin_mm(hwp: Any) -> float:
+    """페이지 좌+우 여백 합 (mm). tool2 `문단여백측정()` 1:1 재현.
+
+    ★ 함수 이름이 `문단` 이지만 실제 동작은 PageSetup → PageDef 측정 (tool2
+    디컴파일 line 294-300 권위). 표 폭 계산용 — `205 - 측정값` 식으로 사용해
+    A4 사용 가능 가로폭 산출. 직전엔 ParagraphShape 의 LeftMargin/RightMargin
+    을 측정해서 항상 0 반환 → 표 가로폭이 페이지를 넘어가는 사고.
+    """
+    try:
+        action = hwp.CreateAction("PageSetup")
+        pset = action.CreateSet()
+        action.GetDefault(pset)
+        page_def = pset.Item("PageDef")
+        left  = int(page_def.Item("LeftMargin") or 0)
+        right = int(page_def.Item("RightMargin") or 0)
+        # tool2: 283.4 = HwpUnit per mm. MiliToHwpUnit 우선 사용.
+        per_mm = hwp.MiliToHwpUnit(1.0) or 283.4
+        return round((left + right) / per_mm, 1)
+    except Exception:
+        return 0.0
+
+
+def set_paragraph_above_pt(hwp: Any, pt: float) -> None:
+    """문단 위 간격 (pt). tool2 `문단위(pt)` 등가."""
+    set_param(hwp, "ParagraphShape", {
+        "PageBreakBefore": 0,
+        "PagePadding":     int(pt * 100),
+    })
+
+
+def insert_page_number(hwp: Any) -> None:
+    """쪽번호 삽입. tool2 `쪽번호()` — 가운데 정렬 default."""
+    try:
+        hwp.HAction.Run("InsertPageNum")
+    except Exception:
+        pass
+
+
+def set_page_renumber(hwp: Any, n: int = 1) -> None:
+    """쪽번호 새 시작값 지정. tool2 `쪽새번호(n)`."""
+    try:
+        hwp.HAction.GetDefault("AutoChangeNumber", hwp.HParameterSet.HAutoNum.HSet)
+        N = hwp.HParameterSet.HAutoNum
+        N.Type = 0  # 0 = page
+        N.NewNumber = int(n)
+        hwp.HAction.Execute("AutoChangeNumber", hwp.HParameterSet.HAutoNum.HSet)
+    except Exception:
+        pass
+
+
+def insert_header(hwp: Any) -> None:
+    """머리말 영역 진입. tool2 `머릿말()` — 머리말 편집 모드."""
+    try:
+        hwp.HAction.Run("HeaderFooterMake")
+    except Exception:
+        try:
+            hwp.HAction.Run("HeaderFooterModify")
+        except Exception:
+            pass
+
+
+def set_dotted_tab(hwp: Any, position: int) -> None:
+    """탭 점선 설정. tool2 `탭점선설정(position)` — 점선 채움 탭 위치."""
+    try:
+        hwp.HAction.GetDefault("ParagraphShape", hwp.HParameterSet.HParaShape.HSet)
+        ps = hwp.HParameterSet.HParaShape
+        ps.CreateItemArray("Tab", 1)
+        tab = ps.Tab
+        tab.SetItem(0, {"Pos": int(position), "Leader": 1, "Type": 0})
+        hwp.HAction.Execute("ParagraphShape", hwp.HParameterSet.HParaShape.HSet)
+    except Exception:
+        pass
+
+
+def insert_image_bg(hwp: Any, image_path: Optional[str]) -> None:
+    """배경처럼 셀 안에 사진 삽입. tool2 `사진넣기배경(이미지)` 등가.
+
+    image_path 가 None/공백이면 skip — 사용자가 이미지 미지정 케이스 안전.
+    """
+    if not image_path:
+        return
+    try:
+        hwp.InsertPicture(image_path, True, 1, 0, 0, 0, 1, 0, 0)
+    except Exception:
+        pass
+
+
+def char_style_normal(hwp: Any) -> None:
+    """글자 스타일 0 (기본) 적용. tool2 `글자스타일(0)`."""
+    try:
+        set_param(hwp, "CharShape", {"StyleType": 0})
+    except Exception:
+        pass
+
+
+def reset_kerning_zero(hwp: Any) -> None:
+    """자간 0 초기화. tool2 `자간헌터(0)` 등가 (linter 와 동일 spec)."""
+    set_kerning(hwp, 0)

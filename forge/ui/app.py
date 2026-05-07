@@ -36,9 +36,9 @@ from .hotkeys import GlobalHotkeyManager, MOD_CONTROL, MOD_SHIFT, vk
 from .hwp_picker import pick_hwp_instance
 from .icon import make_app_icon
 from .tabs.howto_tab import HowToTab
-from .tabs.settings_tab import SettingsTab
 from .tabs.markdown_tab import MarkdownTab
 from .tabs.realtime_tab import RealtimeTab
+from .tabs.templates_tab import TemplatesTab
 
 
 # ==========================================================================
@@ -161,16 +161,18 @@ class ForgeApp:
         notebook.pack(fill=BOTH, expand=True, padx=10, pady=(0, 10))
 
         # 탭 인스턴스화 — 각 탭은 app 참조 보유 (state + ensure_hwp 호출 등)
+        # 구 ② 기본정보 (SettingsTab) 는 마크다운 탭 상단에 통합 — 페이지 여백·
+        # 줄간격만 남았고 보고서 템플릿은 단일이라 선택 UI 없음.
         self.tab_howto = HowToTab(notebook)
-        self.tab_settings = SettingsTab(notebook, self.state)
-        self.tab_markdown = MarkdownTab(notebook, self)
         self.tab_realtime = RealtimeTab(notebook, self)
+        self.tab_templates = TemplatesTab(notebook, self)
+        self.tab_markdown = MarkdownTab(notebook, self)
 
         # 첫 사용자가 바로 안내를 볼 수 있도록 How to? 를 맨 앞에 배치.
         # 익숙해진 사용자는 탭 ① 로 이동해 작업.
         notebook.add(self.tab_howto.frame, text="ⓘ How to?")
         notebook.add(self.tab_realtime.frame, text="① 개별 작업")
-        notebook.add(self.tab_settings.frame, text="② 기본정보")
+        notebook.add(self.tab_templates.frame, text="② 양식삽입")
         notebook.add(self.tab_markdown.frame, text="③ 마크다운 입력")
         # 기본 활성 탭은 실시간(가장 자주 쓰는 모드). How to? 는 사용자가 클릭해서 본다.
         try:

@@ -35,29 +35,52 @@ if TYPE_CHECKING:
 
 SAMPLE_MD = """\
 ---
-보고서명: 샘플 보고서 (Forge 테스트)
+보고서명: ◆◆◆ 검사 결과 및 대응방안
 ---
 
 1. 현황
-가. 개요
-□ (배경) Forge GUI 첫 __동작__ 검증
- ○ 탭 ② 마크다운 → hwpx __변환 경로__ 확인
-  - 한/글 COM 인스턴스 attach
-  - 본문 노드별 텍스트 삽입
-   · 자동 BreakPara
 
-나. 진행 상황
-□ (현재) 1차 __구현__ 완료
+가. 개요
+□ (배경) __은행권 광고 동의 위반__ 사례 적발 — 금감원 정기검사 결과
+ ○ __A사__·__B사__가 마케팅 이용·광고수신 동의 미보유 고객의 __개인신용정보__ 활용
+  - A사: 2024.1~6 약 1.2만 건
+  - B사: 2024.3~9 약 0.8만 건
+   · 동의 유효기간 경과 케이스 다수 포함
+
+나. 검사 진행
+□ (현황) 자료 회신 __90% 수령 완료__
+ ○ 잔여 자료 추가 요구 발송 (5.7.) — 회신 기한 5.15.
+
+* 검사 표본은 신용정보법 제33조의2 위반 의심 건 위주 추출
+※ 본 수치는 잠정치 — 최종 결과는 검사 종료 시점에 확정
+† 위반 건수 = 동의 미보유 + 유효기간 경과 합계 기준
 
 [참고]
-이 hwpx 는 텍스트 + 기본 폰트만 적용된 초안입니다.
-박스·색상·테두리 등 시각 디테일은 후속 STAGE 2 Linter 가 처리합니다.
+신용정보법 제33조의2(개인신용정보의 이용) 제2항
+신용정보주체로부터 마케팅 이용·광고수신 동의를 받지 아니하고는 광고를 위하여 개인신용정보를 이용할 수 없다.
 
 2. 향후 계획
-□ (즉시) STAGE 2 XML 룰 __카탈로그__ 작성
-□ (장기) STAGE 3 폴리셔 통합
 
-=> 첫 end-to-end 동작 확인 시 미니멀 성공
+가. 즉시 조치
+□ (제재) __위반사항 확정__ 시 과태료 부과 검토
+□ (개선) __동의 관리 체계 점검__ 및 시스템 차원 개선 권고
+
+나. 중장기
+□ (제도) 광고 동의 갱신 주기 가이드라인 마련
+ ○ 업계 의견 수렴 (5월 중) → 감독규정 개정 검토 (6~7월)
+
+=> 검사 결과를 토대로 __업계 차원의 시스템적 개선__ 유도
+
+[붙임 1]
+관련 법령 발췌
+신용정보법 제33조의2 — 개인신용정보 이용 동의 의무
+신용정보법 시행령 제27조의2 제3항 — 광고 목적 이용 제한
+
+[붙임 2]
+검사 대상 회사별 위반 건수 잠정치
+A사: 12,345 건 (2024.1~6 누적)
+B사:  8,567 건 (2024.3~9 누적)
+합계 약 2.0만 건 — 추가 자료 회신 후 확정.
 """
 
 
@@ -99,6 +122,48 @@ class MarkdownTab:
         ttk.Entry(meta_bar, textvariable=self.var_date, width=14).pack(side=LEFT, padx=(0, 8))
         ttk.Label(meta_bar, text="(YYYY-MM-DD, 비우면 변환 시 오늘)").pack(side=LEFT)
 
+        # ─── 양식 spec — 페이지 여백 + 줄간격 (구 ② 기본정보 탭 통합, 2026-05-08) ───
+        # 폰트·글머리·주석 spec 은 '개별 작업' 탭의 4 폰트 cluster + 빈줄 크기가
+        # SSOT — 변환 시점에 자동 주입. 여기는 구조 양식(여백·줄간격) 만 다룬다.
+        spec_bar = TtkLabelFrame(self.frame, text="양식 spec — 페이지 여백·줄간격", padding=8)
+        spec_bar.pack(fill=X, pady=(0, 8))
+
+        m = self.state.spec.margins
+        self.var_margins = {
+            "left":   tk.DoubleVar(value=m.left),
+            "right":  tk.DoubleVar(value=m.right),
+            "top":    tk.DoubleVar(value=m.top),
+            "bottom": tk.DoubleVar(value=m.bottom),
+            "header": tk.DoubleVar(value=m.header),
+            "footer": tk.DoubleVar(value=m.footer),
+        }
+        margin_labels = [("좌", "left"), ("우", "right"), ("위", "top"),
+                          ("아래", "bottom"), ("머리", "header"), ("꼬리", "footer")]
+        for label, key in margin_labels:
+            ttk.Label(spec_bar, text=label, foreground="#666").pack(side=LEFT, padx=(0, 2))
+            ttk.Spinbox(
+                spec_bar, from_=0, to=50, increment=0.5,
+                textvariable=self.var_margins[key], width=5,
+            ).pack(side=LEFT, padx=(0, 6))
+        ttk.Label(spec_bar, text="mm", foreground="#999").pack(side=LEFT, padx=(0, 12))
+
+        ttk.Separator(spec_bar, orient="vertical").pack(side=LEFT, fill=Y, padx=(0, 8))
+
+        ttk.Label(spec_bar, text="줄간격").pack(side=LEFT, padx=(0, 4))
+        self.var_line_default = tk.IntVar(value=self.state.spec.line_spacing_default)
+        ttk.Spinbox(
+            spec_bar, from_=100, to=300, increment=5,
+            textvariable=self.var_line_default, width=5,
+        ).pack(side=LEFT, padx=(0, 2))
+        ttk.Label(spec_bar, text="%", foreground="#999").pack(side=LEFT, padx=(0, 12))
+
+        ttk.Button(
+            spec_bar, text="↺ 기본값", command=self._reset_spec,
+        ).pack(side=LEFT, padx=(0, 4))
+        ttk.Button(
+            spec_bar, text="설정 적용", command=self._apply_spec,
+        ).pack(side=LEFT)
+
         # ─── 좌·우 분할 ───
         paned = TtkPanedWindow(self.frame, orient="horizontal")
         paned.pack(fill=BOTH, expand=True)
@@ -133,9 +198,11 @@ class MarkdownTab:
 
     # ─────────────────────────────────────── 툴바 핸들러
     def _fill_sample(self) -> None:
+        """샘플 markdown 채우기 + 작성부서를 '테스트팀' 으로 prefill."""
         self.text.delete("1.0", "end")
         self.text.insert("1.0", SAMPLE_MD)
-        self._log("샘플 markdown 채움")
+        self.var_dept.set("테스트팀")
+        self._log("샘플 markdown 채움 (작성부서='테스트팀')")
 
     def _clear(self) -> None:
         self.text.delete("1.0", "end")
@@ -307,6 +374,37 @@ class MarkdownTab:
     # spec v1.4: 메타데이터 fallback 메서드 제거.
     #   - 보고서명: markdown front-matter (Metadata) 에서 직접
     #   - 작성부서·작성일: UI 입력 (var_dept, var_date) — _convert_worker 에서 직접 읽음
+
+    # ─────────────────────────────────────── 양식 spec (구 ② 기본정보 탭)
+    def _apply_spec(self) -> None:
+        """페이지 여백·줄간격 입력 → state.spec 반영. 다음 변환부터 적용."""
+        from forge.formatter.templates import PageMargins
+        try:
+            self.state.spec.margins = PageMargins(
+                left=float(self.var_margins["left"].get()),
+                right=float(self.var_margins["right"].get()),
+                top=float(self.var_margins["top"].get()),
+                bottom=float(self.var_margins["bottom"].get()),
+                header=float(self.var_margins["header"].get()),
+                footer=float(self.var_margins["footer"].get()),
+            )
+            self.state.spec.line_spacing_default = int(self.var_line_default.get())
+            messagebox.showinfo("적용됨", "양식 spec 이 다음 변환부터 적용됩니다.")
+        except (ValueError, TypeError) as e:
+            messagebox.showerror("입력 오류", f"숫자 형식 오류: {e}")
+
+    def _reset_spec(self) -> None:
+        """기본값(REPORT1_SPEC) 으로 되돌림."""
+        from forge.formatter.templates import REPORT1_SPEC
+        self.state.spec = REPORT1_SPEC.clone()
+        m = self.state.spec.margins
+        self.var_margins["left"].set(m.left)
+        self.var_margins["right"].set(m.right)
+        self.var_margins["top"].set(m.top)
+        self.var_margins["bottom"].set(m.bottom)
+        self.var_margins["header"].set(m.header)
+        self.var_margins["footer"].set(m.footer)
+        self.var_line_default.set(self.state.spec.line_spacing_default)
 
     # ─────────────────────────────────────── 로그 헬퍼
     def _log(self, msg: str) -> None:
