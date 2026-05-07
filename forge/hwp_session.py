@@ -287,13 +287,34 @@ def _find_in_rot(
         try:
             obj = rot.GetObject(mk)
             disp = obj.QueryInterface(pythoncom.IID_IDispatch)
-            hwp = gencache.EnsureDispatch(disp)
+            hwp = _wrap_idispatch(disp)
         except Exception:
             continue
         # dead moniker 가 ROT 에 잔존할 수 있음 — 가벼운 호출로 검증
         if is_alive(hwp):
             return hwp, name, version_code, instance_index
     return None
+
+
+def _wrap_idispatch(disp: Any) -> Any:
+    """
+    ROT 에서 받은 IDispatch 를 win32com 객체로 wrap.
+
+    `gencache.EnsureDispatch(disp)` 가 early-bound wrapper 를 만들어주면
+    가장 빠르지만, IDispatch 에 추적 가능한 type library 정보가 없으면
+    `TypeError: This COM object can not automate the makepy process` 로
+    실패 (한/글 2018·2024 등 일부 빌드에서 보고). 그 경우 late-bound
+    `Dispatch(disp)` 로 fallback — dynamic dispatch 라 약간 느리지만
+    한/글 COM 호출은 본질적으로 GUI 동기 호출이라 체감 차이 없음.
+
+    참고: 신규 spawn 경로의 `EnsureDispatch("HWPFrame.HwpObject")` 는 ProgID
+    로 typelib 직접 lookup 하므로 이 fallback 불필요 — 그쪽은 그대로 유지.
+    """
+    from win32com.client import Dispatch, gencache
+    try:
+        return gencache.EnsureDispatch(disp)
+    except (TypeError, AttributeError):
+        return Dispatch(disp)
 
 
 def list_hwp_instances() -> list[HwpInstance]:
@@ -307,7 +328,6 @@ def list_hwp_instances() -> list[HwpInstance]:
     """
     init_com_for_thread()
     import pythoncom
-    from win32com.client import gencache
 
     ctx = pythoncom.CreateBindCtx(0)
     rot = pythoncom.GetRunningObjectTable()
@@ -323,7 +343,7 @@ def list_hwp_instances() -> list[HwpInstance]:
         try:
             obj = rot.GetObject(mk)
             disp = obj.QueryInterface(pythoncom.IID_IDispatch)
-            hwp = gencache.EnsureDispatch(disp)
+            hwp = _wrap_idispatch(disp)
         except Exception:
             continue
         if not is_alive(hwp):
