@@ -46,16 +46,36 @@ if ($Clean) {
 }
 
 # 1) venv 생성
+# 후보 python 명령들을 순서대로 시도. py -3.X 가 실패해도 (해당 버전 없음 등)
+# 다른 후보로 fallback. PowerShell 7+ 의 native command error 가 Stop 으로 잡지
+# 않게 try/catch + LASTEXITCODE 만 체크.
 if (-not (Test-Path $VenvDir)) {
     Write-Host "==> Creating venv at $VenvDir" -ForegroundColor Cyan
-    $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
-    if ($pyLauncher) {
-        & py -3.11 -m venv $VenvDir
-        if ($LASTEXITCODE -ne 0) { & py -3 -m venv $VenvDir }
-    } else {
-        & python -m venv $VenvDir
+    $candidates = @(
+        @("py", "-3.12"), @("py", "-3.11"), @("py", "-3"),
+        @("python", $null), @("python3", $null)
+    )
+    $venvOk = $false
+    foreach ($c in $candidates) {
+        $cmd = $c[0]; $arg = $c[1]
+        $exists = Get-Command $cmd -ErrorAction SilentlyContinue
+        if (-not $exists) { continue }
+        try {
+            if ($arg) {
+                & $cmd $arg -m venv $VenvDir 2>&1 | Out-Host
+            } else {
+                & $cmd -m venv $VenvDir 2>&1 | Out-Host
+            }
+        } catch {
+            continue
+        }
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $VenvDir)) {
+            Write-Host ("    venv created via: " + $cmd + " " + $arg) -ForegroundColor Green
+            $venvOk = $true
+            break
+        }
     }
-    if ($LASTEXITCODE -ne 0) { throw "venv 생성 실패" }
+    if (-not $venvOk) { throw "venv 생성 실패 — Python 3.x 가 PATH 에 없음" }
 }
 
 $VenvPy = Join-Path $VenvDir "Scripts\python.exe"
