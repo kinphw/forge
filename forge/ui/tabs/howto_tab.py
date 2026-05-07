@@ -27,7 +27,7 @@ _INTRO = (
 _QUICKSTART = [
     ("1. 한/글을 먼저 실행",
      "빈 새 문서 또는 임의의 .hwp/.hwpx 를 열어둡니다. Forge 는 떠 있는 한/글에 attach 합니다."),
-    ("2. 상단 '한/글 선택' 버튼 클릭 (선택)",
+    ("2. 상단 '한/글 선택' 버튼 클릭 (Optional - 자동으로 수행됨)",
      "한/글이 여러 개 떠 있으면 어느 인스턴스에 작업할지 명시 선택. 1개뿐이면 자동 attach."),
     ("3. 탭 ① 또는 탭 ③ 에서 원하는 작업 시작",
      "버튼이나 단축키로 룰 적용. 결과는 한/글 화면에서 즉시 확인."),
@@ -35,23 +35,21 @@ _QUICKSTART = [
 
 _TAB1 = (
     "활성 한/글 문서에 정형 룰을 1 개씩 적용합니다.\n"
-    "버튼을 직접 누르거나, 한/글 창에 포커스가 있어도 시스템 전역 단축키로 호출 가능."
+    "버튼을 직접 누르거나, 한/글 창에 포커스가 있어도 시스템 전역 단축키로 호출 가능.\n"
+    "기능은 3 그룹으로 묶여 있습니다 (자세한 단축키 letter 는 탭 ① 화면 참고)."
 )
 
-_HOTKEYS = [
-    ("Ctrl+Shift+Q", "자동 정렬 (들여쓰기 → 자간 → 들여쓰기 3 단계 연속)"),
-    ("Ctrl+Shift+W", "어절 1 개 끌어올림 (자간 좁힘)"),
-    ("Ctrl+Shift+A", "폰트·크기 (본문) — 탭 ① 입력 칸의 값 (휴먼명조 default)"),
-    ("Ctrl+Shift+S", "폰트·크기 (주석) — 탭 ① 입력 칸의 값 (맑은 고딕 default)"),
-    ("Ctrl+Shift+F", "폰트·크기 (헤드라인) — HY헤드라인M default"),
-    ("Ctrl+Shift+G", "폰트·크기 (울릉도) — HY울릉도M default"),
-    ("Ctrl+Shift+D", "현재 문단 글자 크기 (빈줄 자간 꼬임 회피용)"),
-    ("Ctrl+Shift+Z", "자간 0 초기화"),
-    ("Ctrl+Shift+X", "선택 영역 → 마크다운 변환 (한/글에서 선택한 plain text 를 그 자리에서 md 해석)"),
+# 화면이 너무 빽빽해진다는 사용자 피드백 (2026-05-08) 으로 단축키 9 행 일괄
+# 노출은 폐기. 그룹명 + 한 줄 요약만 노출 — 정확한 letter 는 탭 ① 의 Entry 가
+# SSOT (사용자가 변경 가능) 라 여기 중복 표기는 정보 노이즈만 됨.
+_HOTKEY_GROUPS = [
+    ("① 정렬·자간",     "자동 정렬, 어절 끌어올림"),
+    ("② 폰트·크기",     "본문 / 주석 / 헤드라인 / 울릉도 / 빈줄 글자크기 — 5 종"),
+    ("③ reset·변환",    "자간 0 초기화, 선택 영역 → 마크다운 변환"),
 ]
 
 _HOTKEY_NOTE = (
-    "단축키의 letter 부분은 탭 ① 의 Entry 칸에서 자유롭게 변경 가능합니다.\n"
+    "각 단축키 letter 는 탭 ① 의 Entry 칸에서 자유롭게 변경 가능합니다.\n"
     "다른 앱이 같은 단축키를 잡고 있으면 등록 실패 — 상태바에 ⚠ 메시지로 표시됩니다."
 )
 
@@ -63,25 +61,29 @@ _TAB2 = (
 
 _TAB3 = (
     "좌측에 개조식 markdown 을 붙여넣고 '변환' 클릭 → 새 .hwpx 산출.\n"
-    "입력 형식은 spec/markdown-spec.md 참조 — 핵심 글머리는 다음과 같습니다."
+    "Forge 는 GitHub style `#` 헤더가 아닌 '개조식' 입력 — 자세한 형식은 spec/markdown-spec.md 참조."
 )
 
+# ★ Forge 는 표준 markdown `#`/`##`/`###` 헤더를 쓰지 않음. 개조식 `1.`/`가.`/
+#   글머리표 4 단계 + callout 의 7 종 의미만 인식. 대제목은 YAML front-matter
+#   의 `보고서명` 키 (헤더 마크다운 아님).
 _BULLETS = [
-    ("# 대제목",        "보고서 최상단 제목"),
-    ("## Ⅰ. 중제목",    "섹션 단위. Ⅰ./Ⅱ. 등 로마자 자동 인식"),
-    ("### 가. 소제목",  "서브섹션. 가./나. 등 한글 글머리"),
-    ("□ / ○ / - / ·",   "본문 글머리 4 단계 (왼쪽이 상위)"),
-    ("* / ※ / †",       "주석"),
-    ("=> ...",          "결론 박스"),
-    ("[참고] ...",       "참고 callout 박스"),
-    ("[붙임] ...",       "붙임 — 페이지 break 후 시작"),
+    ("보고서명: ...",      "대제목 — YAML front-matter (`---` 사이) 안의 키. 마크다운 `#` 헤더 X"),
+    ("1.  2.  3. ...",     "섹션 헤더 (예: `1. 현황`) — 라인 시작 숫자+마침표"),
+    ("가.  나.  다. ...",  "소제목 — 한글 가나다+마침표 (선택, 섹션 내 1~5개)"),
+    ("□ / ○ / - / ·",      "본문 글머리 4 단계 (왼쪽이 상위)"),
+    ("□ (요약) ...",       "□ 라인 마커 직후 (요약) — HY울릉도M 폰트 강조"),
+    ("* / ** / ***",       "참조 주석 (별 개수로 단계)"),
+    ("※ / †",              "일반 주석 (당구장 / 십자가)"),
+    ("=> ...",             "결론 박스"),
+    ("[참고]",             "참고 callout 박스 (다음 빈 줄까지 본문)"),
+    ("[붙임] / [붙임 N]",  "붙임 — 자동 페이지 break 후 시작"),
+    ("__강조__",           "인라인 Bold (markdown-spec v1.4)"),
 ]
 
 _TIPS = [
     "한/글 인스턴스가 여러 개일 때 임의 선택을 막기 위해 picker 다이얼로그가 강제됩니다 — 사고 방지.",
     "DRM(Fasoo 등) 환경에서도 ShellExecute 우선으로 신규 spawn 하므로 정책 위반 없이 동작합니다.",
-    "배치 출력은 .hwpx 강제(정부 HWP 단계적 퇴출 정책 반영). 실시간은 입력 형식 보존.",
-    "런타임에 LLM 호출 0 — 모든 룰은 결정론적이고 재현 가능합니다.",
 ]
 
 
@@ -117,11 +119,12 @@ class HowToTab:
 
         hk = ttk.Frame(t1)
         hk.pack(fill="x")
-        ttk.Label(hk, text="기본 단축키", font=("", 10, "bold")).pack(anchor=W, pady=(2, 4))
-        for combo, desc in _HOTKEYS:
+        ttk.Label(hk, text="기능 그룹", font=("", 10, "bold")).pack(anchor=W, pady=(2, 4))
+        for group, desc in _HOTKEY_GROUPS:
             row = ttk.Frame(hk)
             row.pack(fill="x", pady=1)
-            ttk.Label(row, text=combo, font=("Consolas", 10), width=18, anchor=W).pack(side="left")
+            ttk.Label(row, text=group, font=("", 10, "bold"),
+                      width=18, anchor=W).pack(side="left")
             ttk.Label(row, text=desc, justify="left", wraplength=700).pack(side="left", anchor=W)
         ttk.Label(t1, text=_HOTKEY_NOTE, justify="left", wraplength=860,
                   foreground="#555").pack(anchor=W, pady=(8, 0))
