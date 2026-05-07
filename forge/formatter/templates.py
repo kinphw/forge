@@ -58,7 +58,7 @@ class ReportSpec:
     title_border_thickness: int = 6
 
     # 부서·일자 stamp (우정렬)
-    date_font: str = "TH휴먼명조"
+    date_font: str = "휴먼명조"
     date_size_pt: float = 12.0
 
     # 중제목 (Ⅰ./Ⅱ.)
@@ -81,7 +81,9 @@ class ReportSpec:
     subsection_content_width_mm: float = 49.0
 
     # ─── 본문 글머리 4단계 (□ ○ - ·) ───
-    # 사용자 명시: 모두 TH휴먼명조 15pt 동일, 깊이만 균등 누진.
+    # 사용자 명시: 모두 휴먼명조 15pt 동일, 깊이만 균등 누진.
+    # ('휴먼명조' face name 으로 호출하면 primitives.set_font 가 tool2 권위 spec
+    #  (set_font_humanmyongjo, 7면 매핑 + HFT) 으로 자동 dispatch — CLAUDE.md §3.2.)
     #   - 내어쓰기: -22 → -33.6 (Δ-11.6) → -45.2 → -56.8
     #   - fixed_pre: 1 → 3 → 5 → 7 (왼쪽 들여쓰기 2칸씩)
     # space_above_pt 는 사용자 요청으로 더 이상 렌더러에서 사용하지 않음 (자동 빈 줄
@@ -90,25 +92,25 @@ class ReportSpec:
     bullets: list[BulletStyle] = field(default_factory=lambda: [
         BulletStyle(  # L1 □
             md_glyph="□", out_glyph="□",
-            font="TH휴먼명조", size_pt=15.0, indent_pt=-22.0,
+            font="휴먼명조", size_pt=15.0, indent_pt=-22.0,
             bold=False, space_above_pt=0.0, line_spacing=150,
             fixed_pre=1, fixed_post=2,
         ),
         BulletStyle(  # L2 ○
             md_glyph="○", out_glyph="◦",
-            font="TH휴먼명조", size_pt=15.0, indent_pt=-33.6,
+            font="휴먼명조", size_pt=15.0, indent_pt=-33.6,
             bold=False, space_above_pt=0.0, line_spacing=150,
             fixed_pre=3, fixed_post=2,
         ),
         BulletStyle(  # L3 -
             md_glyph="-", out_glyph="-",
-            font="TH휴먼명조", size_pt=15.0, indent_pt=-45.2,
+            font="휴먼명조", size_pt=15.0, indent_pt=-45.2,
             bold=False, space_above_pt=0.0, line_spacing=150,
             fixed_pre=5, fixed_post=2,
         ),
         BulletStyle(  # L4 ·
             md_glyph="·", out_glyph="·",
-            font="TH휴먼명조", size_pt=15.0, indent_pt=-56.8,
+            font="휴먼명조", size_pt=15.0, indent_pt=-56.8,
             bold=False, space_above_pt=0.0, line_spacing=150,
             fixed_pre=7, fixed_post=2,
         ),
@@ -127,7 +129,7 @@ class ReportSpec:
     ))
 
     # 결론 화살표 박스 (=>)
-    conclusion_font: str = "TH휴먼명조"
+    conclusion_font: str = "휴먼명조"
     conclusion_size_pt: float = 15.0
     conclusion_bg_rgb: tuple[int, int, int] = (205, 242, 228)  # 민트
     conclusion_box_height_mm: float = 18.0

@@ -62,7 +62,8 @@ class RealtimeTab:
         # 버튼 vertical stack (좌측) + meta controls (우측 상단).
         # 행 0: 자동 정렬 (들·자·들)               — 메인 동선
         # 행 1: 어절 1개 끌어올림                  — 보조 동선
-        # 행 2: 폰트/크기 적용 + 텍스트박스 (TH휴먼명조 / 15)
+        # 행 2: 폰트/크기 적용 + 텍스트박스 (휴먼명조 / 15) — face='휴먼명조' 면
+        #       primitives.set_font 가 tool2 권위 spec 으로 자동 dispatch
         # 행 3: 폰트/크기 적용 + 텍스트박스 (맑은 고딕 / 12)
         # 행 4: 선택영역 → TT HY울릉도M 15pt        — 요약/개요 강조용
         # 행 5: 현재 문단 글자크기 (빈줄용, 사용자 지정 pt)
@@ -149,7 +150,7 @@ class RealtimeTab:
 
         # 폰트 입력 StringVars — 행 2/3/4 의 (본문/주석/요약) 3 종 폰트 cluster.
         # 모두 사용자가 Combobox 에서 자유 선택. 기본값은 보고서 1 spec 관례.
-        self.var_font1 = tk.StringVar(value="TH휴먼명조")  # 본문
+        self.var_font1 = tk.StringVar(value="휴먼명조")  # 본문 (tool2 권위 dispatch)
         self.var_size1 = tk.StringVar(value="15")
         self.var_font2 = tk.StringVar(value="맑은 고딕")  # 주석
         self.var_size2 = tk.StringVar(value="12")
@@ -611,10 +612,12 @@ class RealtimeTab:
 
             self._log("")
             self._log(
-                "  💡 (A) FaceNameHangul 비어있고 (B) selection 이 채워져 있으면"
-                " character-level override. 둘 다 비어있으면 paragraph/section"
-                " style 에서만 폰트가 정의된 상태 — (C) GetFontList 의 한글 항목"
-                " 에서 한/글이 실제 인식한 정확한 이름 확인 가능."
+                "  💡 (A)·(B) 가 모두 빈 값이어도 한컴 API 의 readback 한계라 정상."
+                " HAction.GetDefault 는 '초기 default' 만 채우고 caret 의 effective"
+                " CharShape 를 readback 하지 않음 (tool2 도 readback path 없음)."
+                " apply 자체가 정상 작동했는지는 한/글 화면 시각으로 확인하고,"
+                " 문서가 사용 중인 face name 의 권위적 list 는 (C) GetFontList 결과"
+                " 에서 확인."
             )
             self.app._set_status("✔ 캐럿 글자모양 조회 완료 — 로그 확인")
         except Exception as e:
@@ -773,7 +776,9 @@ class RealtimeTab:
 
     def _run_font_apply_async(self, font_name: str, size_str: str) -> None:
         from tkinter import messagebox
-        from forge.com_helpers import set_param
+        # set_font 가 '휴먼명조' 인 경우 tool2 권위 spec (set_font_humanmyongjo,
+        # 7면 매핑 + HFT 강제) 으로 자동 dispatch — CLAUDE.md §3.2.
+        from forge.renderers.primitives import set_font
 
         label = f"{font_name} {size_str}pt"
         self._log("")
@@ -818,20 +823,10 @@ class RealtimeTab:
                 return
 
             hwp = session.hwp
-            # 한/글 7개 언어 면 일괄 + Height(pt × 100) 변경. Bold/색상 보존.
-            # FontType* = 0 (don't care) — 한/글이 TTF/HFT 자동 매칭. 1 (TTF 강제)
-            # 로 두면 폐쇄망 등 HFT-only 환경에서 face name 매칭 실패 → readback ''
-            # 사고. API 정의(CharShape): 0=don't care, 1=TTF, 2=HFT.
-            set_param(hwp, "CharShape", {
-                "FaceNameUser":     font_name, "FontTypeUser":     0,
-                "FaceNameHangul":   font_name, "FontTypeHangul":   0,
-                "FaceNameSymbol":   font_name, "FontTypeSymbol":   0,
-                "FaceNameOther":    font_name, "FontTypeOther":    0,
-                "FaceNameJapanese": font_name, "FontTypeJapanese": 0,
-                "FaceNameHanja":    font_name, "FontTypeHanja":    0,
-                "FaceNameLatin":    font_name, "FontTypeLatin":    0,
-                "Height":           int(size_pt * 100),
-            })
+            # set_font 단일 진입점 — '휴먼명조' 면 set_font_humanmyongjo 로 자동
+            # dispatch (tool2 권위 7면 매핑 + HFT). 그 외 일반 폰트는 7면 일괄 +
+            # FontType=0 (don't care, 한/글 자동 매칭).
+            set_font(hwp, font_name, size_pt)
             self._log(f"[ok] CharShape 적용 요청: {label}")
             # 진단 — 적용 후 실제 CharShape 를 다시 읽어 user 가 입력한 폰트가
             # 그대로 들어갔는지 확인. 한/글이 미설치 폰트는 silent substitution

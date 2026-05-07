@@ -117,11 +117,42 @@ def align(hwp: Any, mode: Align) -> None:
 # 글자 모양
 # ============================================================================
 
+def set_font_humanmyongjo(hwp: Any, size_pt: float, bold: bool = False) -> None:
+    """휴먼명조 보고서 폰트 — tool2 권위 spec 정확 복제.
+
+    출처: reference/tool2/_unpacked/한컴라이브러리_decompiled.py:1014-1034
+    (CLAUDE.md §3.2 — tool2 시각 spec authority).
+
+    7 언어면 별 face name 이 다름 + FontType=2 (HFT 강제). 한 면이라도 망가지면
+    영문/한자 혼용 부분의 시각 동등성이 깨짐. 한/글 GUI 의 'TT휴먼명조' /
+    'TH휴먼명조' 라벨은 face name 이 아니라 font type 의 시각 marker — COM API
+    는 plain '휴먼명조' + FontType=2 로 받음.
+    """
+    set_param(hwp, "CharShape", {
+        "FaceNameHangul":   "휴먼명조",   "FontTypeHangul":   2,
+        "FaceNameUser":     "명조",       "FontTypeUser":     2,
+        "FaceNameSymbol":   "한양신명조", "FontTypeSymbol":   2,
+        "FaceNameOther":    "한양신명조", "FontTypeOther":    2,
+        "FaceNameJapanese": "한양신명조", "FontTypeJapanese": 2,
+        "FaceNameHanja":    "한양신명조", "FontTypeHanja":    2,
+        "FaceNameLatin":    "HCI Poppy",  "FontTypeLatin":    2,
+        "Height":           int(size_pt * 100),
+        "Bold":             1 if bold else 0,
+    })
+
+
 def set_font(hwp: Any, font: str, size_pt: float, bold: bool = False) -> None:
     """
     폰트·크기·Bold 일괄 적용. 한/글의 7개 언어 면 모두 지정.
     Bold 는 CharShape의 Bold 항목으로.
+
+    ★ font == '휴먼명조' 면 tool2 권위 spec (set_font_humanmyongjo) 으로 dispatch.
+    이 한 곳만 거치면 templates default · realtime UI · 모든 호출 경로가 자동으로
+    7면 매핑 + HFT 보장. CLAUDE.md §3.2 시각 동등성 단일 진입점.
     """
+    if font == "휴먼명조":
+        set_font_humanmyongjo(hwp, size_pt, bold=bold)
+        return
     # FontType* = 0 (don't care) — 한/글이 TTF/HFT 자동 매칭. 1 (TTF 강제) 로 두면
     # 폐쇄망 등 HFT-only 환경에서 face name 매칭 실패 → readback '' 사고. API 정의
     # (CharShape ParameterSet): 0=don't care, 1=TTF, 2=HFT.

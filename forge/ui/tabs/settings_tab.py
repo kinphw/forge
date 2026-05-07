@@ -122,7 +122,7 @@ class SettingsTab:
 
         # ─── 본문 글머리 4단계 (□ ○ - ·) ───
         bullets = TtkLabelFrame(content,
-                                 text="본문 글머리 (4단계: □ ○ - ·) — 모두 TH휴먼명조 15pt, 깊이만 누진",
+                                 text="본문 글머리 (4단계: □ ○ - ·) — 모두 휴먼명조 15pt (tool2 권위 spec dispatch)",
                                  padding=10)
         bullets.pack(fill=X, pady=(0, 10))
         ttk.Label(bullets, text="md", width=6).grid(row=0, column=0, sticky=W)
