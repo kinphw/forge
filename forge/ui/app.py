@@ -103,18 +103,19 @@ class ForgeApp:
 
     # ---------------------------------------------------------------- hotkeys
     def _setup_hotkeys(self) -> None:
-        """탭 ① 의 룰을 Ctrl+Shift+Q/W/A/S/D/F/Z/X 시스템 전역 hotkey 로 등록."""
+        """탭 ① 의 룰을 Ctrl+Shift+Q/W/A/S/F/G/D/Z/X 시스템 전역 hotkey 로 등록."""
         rt = self.tab_realtime
         mods = MOD_CONTROL | MOD_SHIFT
         self.hotkey_mgr = GlobalHotkeyManager(self.root)
         self.hotkey_mgr.add(1, mods, vk("Q"), rt.hotkey_auto_align,             "Ctrl+Shift+Q (자동 정렬)")
         self.hotkey_mgr.add(2, mods, vk("W"), rt.hotkey_word_pull,              "Ctrl+Shift+W (어절 끌어올림)")
-        self.hotkey_mgr.add(3, mods, vk("A"), rt.hotkey_font_1,                 "Ctrl+Shift+A (폰트1)")
-        self.hotkey_mgr.add(4, mods, vk("S"), rt.hotkey_font_2,                 "Ctrl+Shift+S (폰트2)")
-        self.hotkey_mgr.add(5, mods, vk("D"), rt.hotkey_summary_font,           "Ctrl+Shift+D (요약 폰트)")
-        self.hotkey_mgr.add(6, mods, vk("F"), rt.hotkey_paragraph_size_8,       "Ctrl+Shift+F (글자크기)")
-        self.hotkey_mgr.add(7, mods, vk("Z"), rt.hotkey_kerning_reset,          "Ctrl+Shift+Z (자간 0)")
-        self.hotkey_mgr.add(8, mods, vk("X"), rt.hotkey_md_convert_selection,   "Ctrl+Shift+X (선택→md 변환)")
+        self.hotkey_mgr.add(3, mods, vk("A"), rt.hotkey_font_1,                 "Ctrl+Shift+A (본문 폰트)")
+        self.hotkey_mgr.add(4, mods, vk("S"), rt.hotkey_font_2,                 "Ctrl+Shift+S (주석 폰트)")
+        self.hotkey_mgr.add(5, mods, vk("F"), rt.hotkey_headline_font,          "Ctrl+Shift+F (헤드라인 폰트)")
+        self.hotkey_mgr.add(6, mods, vk("G"), rt.hotkey_uleungdo_font,          "Ctrl+Shift+G (울릉도 폰트)")
+        self.hotkey_mgr.add(7, mods, vk("D"), rt.hotkey_paragraph_size_8,       "Ctrl+Shift+D (글자크기)")
+        self.hotkey_mgr.add(8, mods, vk("Z"), rt.hotkey_kerning_reset,          "Ctrl+Shift+Z (자간 0)")
+        self.hotkey_mgr.add(9, mods, vk("X"), rt.hotkey_md_convert_selection,   "Ctrl+Shift+X (선택→md 변환)")
 
         results = self.hotkey_mgr.start()
         # 각 행의 ✓/✗ 상태 라벨 갱신 (시각 피드백)

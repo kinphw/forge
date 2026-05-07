@@ -41,10 +41,11 @@ _TAB1 = (
 _HOTKEYS = [
     ("Ctrl+Shift+Q", "자동 정렬 (들여쓰기 → 자간 → 들여쓰기 3 단계 연속)"),
     ("Ctrl+Shift+W", "어절 1 개 끌어올림 (자간 좁힘)"),
-    ("Ctrl+Shift+A", "폰트·크기 (본문) — 탭 ① 입력 칸의 값"),
-    ("Ctrl+Shift+S", "폰트·크기 (주석) — 탭 ① 입력 칸의 값"),
-    ("Ctrl+Shift+D", "선택영역 → 요약 폰트 ((개요)/(요약) 강조용)"),
-    ("Ctrl+Shift+F", "현재 문단 글자 크기 (빈줄 자간 꼬임 회피용)"),
+    ("Ctrl+Shift+A", "폰트·크기 (본문) — 탭 ① 입력 칸의 값 (휴먼명조 default)"),
+    ("Ctrl+Shift+S", "폰트·크기 (주석) — 탭 ① 입력 칸의 값 (맑은 고딕 default)"),
+    ("Ctrl+Shift+F", "폰트·크기 (헤드라인) — HY헤드라인M default"),
+    ("Ctrl+Shift+G", "폰트·크기 (울릉도) — HY울릉도M default"),
+    ("Ctrl+Shift+D", "현재 문단 글자 크기 (빈줄 자간 꼬임 회피용)"),
     ("Ctrl+Shift+Z", "자간 0 초기화"),
     ("Ctrl+Shift+X", "선택 영역 → 마크다운 변환 (한/글에서 선택한 plain text 를 그 자리에서 md 해석)"),
 ]
