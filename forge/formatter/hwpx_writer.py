@@ -349,7 +349,7 @@ def convert_selection_to_hwpx(
 
     동작 순서:
       1. selection_range() 로 영역 검사. 단순 캐럿이면 NoSelectionError raise.
-      2. GetTextFile("TEXT", "saveblock") 로 선택 영역의 텍스트만 추출.
+      2. GetTextFile("UNICODE", "saveblock") 로 선택 영역의 텍스트만 추출.
          서식은 모두 버림 — 사용자 의도가 'plain md 로 보겠다' 이므로.
       3. Run("Delete") 로 선택 영역 제거 — 캐럿이 그 자리에 남음.
       4. parse_markdown(text) → generate_hwpx_via_com(mode='cursor') 로
@@ -386,13 +386,15 @@ def convert_selection_to_hwpx(
 
     # 1) 선택 영역 텍스트 추출 — 서식 버리고 plain text 만.
     #    GetTextFile(format, option): 한컴 공식 (HwpAutomation_2504.txt p.24).
-    #      format="TEXT"   — 일반 텍스트. 유니코드 전용 정보(한자·고어 등) 손실.
-    #                        한국어 prose 는 무손실. ※ HWPML2X 는 서식 포함이라 X.
+    #      format="UNICODE" — 유니코드 텍스트, 서식정보 없음. 모든 문자 무손실.
+    #                         ※ "TEXT" 는 유니코드 전용 문자(em-dash —, 한자, 고어
+    #                            등) 를 HTML 수치 엔티티(`&#8212;` 등) 로 escape
+    #                            해서 내보내므로 사용 금지.
     #      option="saveblock" — 선택 블록만 export (콜론·:true 같은 suffix 없음).
     #    한계: 개체 선택 상태(표·이미지·도형) 에서는 동작 안 함 — 텍스트
     #          selection 만 처리.
     try:
-        raw = hwp.GetTextFile("TEXT", "saveblock")
+        raw = hwp.GetTextFile("UNICODE", "saveblock")
     except Exception as e:
         log(f"[md-convert] GetTextFile 호출 실패: {e}")
         raise NoSelectionError(
