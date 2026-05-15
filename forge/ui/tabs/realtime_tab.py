@@ -30,6 +30,7 @@ from forge.linter import (
     fit_current_paragraph_to_one_line,
 )
 
+from ..actions import ACTIONS
 from ..tooltip import Tooltip
 
 if TYPE_CHECKING:
@@ -119,24 +120,17 @@ class RealtimeTab:
             ).pack(side=LEFT, padx=(2, 0))
 
         # ─── hotkey letter StringVars (사용자 편집 가능) + 상태 라벨 dict ────
-        # 9 개 hotkey 각각 letter 1글자 — 비우면 비활성화. 변경 시 GlobalHotkeyManager
-        # 에 PostThreadMessage 로 재등록 요청. 결과는 status 라벨 (✓ / ✗ / —) 로 표시.
+        # [ACTIONS][forge.ui.actions.ACTIONS] 의 default_key 가 SSOT — letter 1글자.
+        # 비우면 비활성화. 변경 시 GlobalHotkeyManager 에 PostThreadMessage 로
+        # 재등록 요청. 결과는 status 라벨 (✓ / ✗ / —) 로 표시.
+        # dict 키 = hk_id (1-indexed) = ACTIONS 인덱스 + 1.
         self.var_hk_letter: dict[int, tk.StringVar] = {
-            1: tk.StringVar(value="Q"),  # 자동 정렬
-            2: tk.StringVar(value="W"),  # 어절 끌어올림
-            3: tk.StringVar(value="A"),  # 본문 폰트 (휴먼명조)
-            4: tk.StringVar(value="S"),  # 주석 폰트 (맑은 고딕)
-            5: tk.StringVar(value="F"),  # 헤드라인 폰트 (HY헤드라인M)
-            6: tk.StringVar(value="G"),  # 울릉도 폰트 (HY울릉도M)
-            7: tk.StringVar(value="D"),  # 현재 문단 글자크기 (빈줄용)
-            8: tk.StringVar(value="Z"),  # 자간 0 초기화
-            9: tk.StringVar(value="X"),  # 선택 영역 → 마크다운 변환
+            i: tk.StringVar(value=a.default_key)
+            for i, a in enumerate(ACTIONS, start=1)
         }
         # 마지막으로 성공 적용된 letter — 실패 시 revert 기준
         self._hk_applied: dict[int, str] = {
-            1: "Q", 2: "W", 3: "A", 4: "S",
-            5: "F", 6: "G", 7: "D",
-            8: "Z", 9: "X",
+            i: a.default_key for i, a in enumerate(ACTIONS, start=1)
         }
         # 상태 라벨 위젯 (foreground 동적 변경 위해 reference 보관)
         self._hk_status_lbl: dict[int, ttk.Label] = {}
@@ -385,44 +379,10 @@ class RealtimeTab:
             )
             footer.pack(anchor=W, pady=(8, 0))
 
-    # ----------------------------------------- hotkey 어댑터 (app.py 가 호출)
-    def hotkey_auto_align(self) -> None:
-        """Ctrl+Shift+Q — 자동 정렬 (들·자·들)."""
-        self._run_kerning_then_indent()
-
-    def hotkey_word_pull(self) -> None:
-        """Ctrl+Shift+W — 어절 1개 끌어올림."""
-        self._run_paragraph_rule(
-            "어절 끌어올림", fit_current_paragraph_to_one_line,
-        )
-
-    def hotkey_font_1(self) -> None:
-        """Ctrl+Shift+A — 행 3 본문 폰트/크기 적용 (var_font1 = 휴먼명조)."""
-        self._apply_font(self.var_font1.get(), self.var_size1.get())
-
-    def hotkey_font_2(self) -> None:
-        """Ctrl+Shift+S — 행 4 주석 폰트/크기 적용 (var_font2 = 맑은 고딕)."""
-        self._apply_font(self.var_font2.get(), self.var_size2.get())
-
-    def hotkey_headline_font(self) -> None:
-        """Ctrl+Shift+F — 행 6 헤드라인 폰트/크기 적용 (var_font3 = HY헤드라인M)."""
-        self._apply_font(self.var_font3.get(), self.var_size3.get())
-
-    def hotkey_uleungdo_font(self) -> None:
-        """Ctrl+Shift+G — 행 7 울릉도 폰트/크기 적용 (var_font4 = HY울릉도M)."""
-        self._apply_font(self.var_font4.get(), self.var_size4.get())
-
-    def hotkey_paragraph_size_8(self) -> None:
-        """Ctrl+Shift+D — 현재 문단 글자크기 (var_blank_size pt, 기본 8)."""
-        self._run_paragraph_size_8()
-
-    def hotkey_kerning_reset(self) -> None:
-        """Ctrl+Shift+Z — 자간 0 초기화 (선택 영역 또는 현재 문단)."""
-        self._run_kerning_reset()
-
-    def hotkey_md_convert_selection(self) -> None:
-        """Ctrl+Shift+X — 한/글 선택 영역을 마크다운으로 해석해 그 자리에 변환 출력."""
-        self._run_md_convert_selection()
+    # ── hotkey 어댑터 (hotkey_*) 는 제거됨. ──────────────────────────────
+    # 단축키 등록은 [forge.ui.actions.ACTIONS][] 가 SSOT. app.py 의
+    # _setup_hotkeys 가 그 리스트를 순회하며 lambda 로 직접 dispatch.
+    # 새 단축키 추가 시 actions.py 만 수정.
 
     # ----------------------------------------- spec override (SSOT)
     def apply_overrides_to_spec(self, spec):
@@ -606,7 +566,9 @@ class RealtimeTab:
         if candidate == self._hk_applied[hk_id]:
             return
 
-        new_label = f"Ctrl+Shift+{candidate}"
+        # 라벨 일관성 — 초기 등록 ([app.py][forge.ui.app._setup_hotkeys]) 과 동일 포맷
+        action = ACTIONS[hk_id - 1]
+        new_label = f"Ctrl+Shift+{candidate} ({action.label})"
         ok = self.app.hotkey_mgr.replace(hk_id, ord(candidate), new_label)
         if ok:
             self._hk_applied[hk_id] = candidate
