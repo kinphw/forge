@@ -50,7 +50,7 @@ pyinstaller --noconfirm --clean --onefile --windowed `
     --collect-submodules win32com `
     --collect-submodules pythoncom `
     --collect-submodules pywintypes `
-    run.py
+    run.pyw
 
 # (4) 산출물 확인
 dir .\dist\Forge.exe

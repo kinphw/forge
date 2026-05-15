@@ -89,7 +89,7 @@ if ($LASTEXITCODE -ne 0) { throw "pip install 실패" }
 
 # 3) PyInstaller 옵션 구성
 $Name = "Forge"
-$Entry = Join-Path $ProjectRoot "run.py"
+$Entry = Join-Path $ProjectRoot "run.pyw"
 
 $PyiArgs = @(
     "--noconfirm",

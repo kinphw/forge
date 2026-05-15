@@ -148,7 +148,7 @@ forge/                          ★ 단일 src 패키지
 │       └── markdown_tab.py     탭 ③ 마크다운 입력 (배치 변환)
 └── rules/                      (예정) 룰셋 카탈로그 정형화 위치
 
-run.py                          GUI 진입점 (`python run.py`)
+run.pyw                         GUI 진입점 (`python run.pyw` / pythonw 자동 — 콘솔 없음)
 pyproject.toml                  project 메타 + 의존성 (forge.__version__ dynamic)
 .mcp.json                       dev MCP 서버 등록 (${FORGE_ROOT:-...} 환경변수)
 

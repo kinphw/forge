@@ -12,7 +12,7 @@
 
 ## 사용 모드 (2가지)
 
-사용자 관점에서 Forge 는 두 가지 동선만 제공한다. GUI 한 윈도우(`python run.py`)
+사용자 관점에서 Forge 는 두 가지 동선만 제공한다. GUI 한 윈도우(`python run.pyw`)
 에서 모두 처리.
 
 - **배치 모드 — md → 새 .hwpx**

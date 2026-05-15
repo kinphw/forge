@@ -7,7 +7,7 @@ Forge 메인 GUI.
   3. 3-탭 노트북 (개별 작업 / 기본정보 / 마크다운 입력)
   4. 상단에 한/글 연결 상태 + About(?) 버튼
 
-진입: `python -m forge.ui.app` 또는 `python run.py`
+진입: `python -m forge.ui.app` 또는 `python run.pyw`
 """
 from __future__ import annotations
 
