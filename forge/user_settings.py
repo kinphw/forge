@@ -92,14 +92,18 @@ def set_section_entry(name: str, key: str, value) -> bool:
 
 def get_keymap() -> dict[str, Optional[str]]:
     """저장된 keymap 만 반환. `{action_id: key_letter or None}`.
-    키 누락 = default 사용, value=None = 비활성화."""
+    키 누락 = default 사용, value=None = 비활성화.
+
+    검증: 1 글자 영문/숫자 (alpha or digit) — _commit_hotkey 의 입력 검증과
+    일치. 이전엔 isalpha 만 허용해 사용자가 숫자 키로 변경한 값을 다음 실행에
+    못 살리는 사고가 있었음 (저장은 통과, 로드는 막힘).
+    """
     raw = load().get("keymap") or {}
-    # 값 검증: 1글자 문자열 또는 None 만 허용
     out: dict[str, Optional[str]] = {}
     for k, v in raw.items():
         if v is None:
             out[k] = None
-        elif isinstance(v, str) and len(v) == 1 and v.isalpha():
+        elif isinstance(v, str) and len(v) == 1 and (v.isalpha() or v.isdigit()):
             out[k] = v.upper()
     return out
 

@@ -165,6 +165,13 @@ class ForgeApp:
         )
         self.connect_btn.pack(side=RIGHT, padx=(6, 0))
 
+        # 💾 설정 저장 — pending 디바운스 + focus-안잡힌 단축키 Entry 까지 강제
+        # flush. 종료 시 _on_close 가 같은 함수 호출하지만 사용자가 명시 컨펌
+        # 원하면 즉시 누를 수 있도록 버튼 노출.
+        ttk.Button(
+            top, text="💾 설정 저장", command=self._save_all_settings, width=14,
+        ).pack(side=RIGHT, padx=(6, 0))
+
         # 메인 노트북
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill=BOTH, expand=True, padx=10, pady=(0, 10))
@@ -430,8 +437,47 @@ class ForgeApp:
         except Exception:
             pass
 
+    # ------------------------------------------------------------ 설정 저장
+    def _flush_all_settings(self) -> None:
+        """모든 탭의 pending 변경을 강제 영속화. UI 알림 X.
+
+        세 종류 pending 을 모두 flush:
+          1. 단축키 Entry — focus-out 안 일어난 채 입력만 한 항목 강제 commit.
+             값 변동이 없으면 _commit_hotkey 가 no-op (안전).
+          2. realtime_tab 디바운스 — 500 ms 안에 추가 변경 없으면 _flush 직접 호출.
+          3. markdown_tab 디바운스 — 동일.
+        """
+        rt = self.tab_realtime
+        md = self.tab_markdown
+        for hk_id in list(rt.var_hk_letter.keys()):
+            try:
+                rt._commit_hotkey(hk_id)
+            except Exception as e:
+                print(f"[settings] commit hotkey {hk_id} fail: {e}")
+        try:
+            rt._flush_rt_save()
+        except Exception:
+            pass
+        try:
+            md._flush_md_save()
+        except Exception:
+            pass
+
+    def _save_all_settings(self) -> None:
+        """💾 버튼 핸들러 — flush + 사용자에게 status 메시지로 알림."""
+        self._flush_all_settings()
+        self._set_status("✔ 모든 설정 저장 완료 — %APPDATA%\\Forge\\settings.json")
+
     # ------------------------------------------------------------ 종료
     def _on_close(self) -> None:
+        # 종료 직전 모든 pending 설정 강제 flush — 사용자가 변경 후 focus-out
+        # 트리거 없이 X 로 닫는 사고 방지. hotkey_mgr.stop() 보다 먼저 호출해야
+        # _commit_hotkey 안의 replace 가 펌프 스레드에 도달 가능.
+        try:
+            self._flush_all_settings()
+        except Exception as e:
+            print(f"[settings] flush on close 실패: {e}")
+
         # 시스템 전역 hotkey 해제 — 등록 채로 두면 OS 가 잡고 있음 (메모리 leak,
         # 다른 앱 실행 시 충돌 원인)
         try:
