@@ -92,7 +92,13 @@ class RealtimeTab:
             command=self._clear_log,
             width=14,
         ).pack(side=LEFT)
-        self.var_show_individual = tk.BooleanVar(value=False)
+        # var_show_individual + var_font*/size*/blank_size 의 초기값은
+        # user_settings 의 "realtime" section 에서 가져옴. 변경은 trace 디바운스로
+        # 자동 저장 (아래 _wire_realtime_persistence 참조).
+        rt_settings = user_settings.get_section("realtime")
+        self.var_show_individual = tk.BooleanVar(
+            value=bool(rt_settings.get("show_individual", False)),
+        )
         ttk.Checkbutton(
             top_meta, text="개별기능 표시",
             variable=self.var_show_individual,
@@ -157,16 +163,26 @@ class RealtimeTab:
 
         # 폰트 입력 StringVars — 행 2~5 의 4 종 폰트 cluster.
         # 모두 사용자가 Combobox 에서 자유 선택. 기본값은 보고서 1 spec 관례.
-        self.var_font1 = tk.StringVar(value="휴먼명조")     # 본문 (tool2 권위 dispatch)
-        self.var_size1 = tk.StringVar(value="15")
-        self.var_font2 = tk.StringVar(value="맑은 고딕")    # 주석
-        self.var_size2 = tk.StringVar(value="12")
-        self.var_font3 = tk.StringVar(value="HY헤드라인M")  # 헤드라인 (소제목/강조)
-        self.var_size3 = tk.StringVar(value="15")
-        self.var_font4 = tk.StringVar(value="HY울릉도M")    # 울릉도 (별도 강조)
-        self.var_size4 = tk.StringVar(value="15")
+        # rt_settings 에 사용자 override 있으면 그 값, 없으면 default.
+        def _rt(key: str, default: str) -> str:
+            v = rt_settings.get(key, default)
+            return str(v) if v is not None else default
+
+        self.var_font1 = tk.StringVar(value=_rt("font1", "휴먼명조"))     # 본문 (tool2 권위 dispatch)
+        self.var_size1 = tk.StringVar(value=_rt("size1", "15"))
+        self.var_font2 = tk.StringVar(value=_rt("font2", "맑은 고딕"))    # 주석
+        self.var_size2 = tk.StringVar(value=_rt("size2", "12"))
+        self.var_font3 = tk.StringVar(value=_rt("font3", "HY헤드라인M"))  # 헤드라인 (소제목/강조)
+        self.var_size3 = tk.StringVar(value=_rt("size3", "15"))
+        self.var_font4 = tk.StringVar(value=_rt("font4", "HY울릉도M"))    # 울릉도 (별도 강조)
+        self.var_size4 = tk.StringVar(value=_rt("size4", "15"))
         # 빈줄용 글자크기 — 행 6 button. 사용자가 칸에서 자유롭게 변경 가능.
-        self.var_blank_size = tk.StringVar(value="8")
+        self.var_blank_size = tk.StringVar(value=_rt("blank_size", "8"))
+
+        # trace 디바운스 영속화 — 모든 var 변경 500 ms 후 한 번에 flush
+        self._rt_save_pending: dict[str, object] = {}
+        self._rt_save_after_id: Optional[str] = None
+        self._wire_realtime_persistence()
 
         # 그룹 구분선 — pady 로 위·아래 여백을 더 넣어 시각적 분리 강조.
         # columnspan=3 으로 [버튼][지정서식][단축키] 3 컬럼 폭 전체에 걸침.
@@ -597,6 +613,50 @@ class RealtimeTab:
         if lbl is None:
             return
         lbl.configure(text=text, foreground=color)
+
+    # ─── realtime 섹션 영속화 — var_font*/size*/blank_size/show_individual ────
+    def _wire_realtime_persistence(self) -> None:
+        """10 개 var 모두에 trace_add 등록. 변경 시 500 ms 디바운스 후 일괄 flush.
+
+        디바운스: 사용자가 Entry 에 타이핑 중 매 글자마다 디스크 write 가 일어나
+        지 않도록. 500 ms 멈춤 시점에 _rt_save_pending 을 한 번에 update_section
+        으로 저장. 한 번의 load → mutate → save 만 수행.
+        """
+        pairs: list[tuple[str, tk.Variable]] = [
+            ("font1", self.var_font1), ("size1", self.var_size1),
+            ("font2", self.var_font2), ("size2", self.var_size2),
+            ("font3", self.var_font3), ("size3", self.var_size3),
+            ("font4", self.var_font4), ("size4", self.var_size4),
+            ("blank_size", self.var_blank_size),
+            ("show_individual", self.var_show_individual),
+        ]
+        for key, var in pairs:
+            # default 인자로 캡쳐 — 늦은 binding 사고 방지
+            var.trace_add(
+                "write",
+                lambda *_, k=key, v=var: self._schedule_rt_save(k, v.get()),
+            )
+
+    def _schedule_rt_save(self, key: str, value: object) -> None:
+        """디바운스 큐에 한 항목 enqueue 후 500 ms 타이머 (re)set."""
+        self._rt_save_pending[key] = value
+        if self._rt_save_after_id is not None:
+            try:
+                self.app.root.after_cancel(self._rt_save_after_id)
+            except Exception:
+                pass
+        self._rt_save_after_id = self.app.root.after(500, self._flush_rt_save)
+
+    def _flush_rt_save(self) -> None:
+        """누적된 변경을 한 번의 update_section 호출로 flush."""
+        self._rt_save_after_id = None
+        if not self._rt_save_pending:
+            return
+        updates = dict(self._rt_save_pending)
+        self._rt_save_pending.clear()
+        ok = user_settings.update_section("realtime", updates)
+        if not ok:
+            self._log(f"[settings] ⚠ realtime section 저장 실패 — {list(updates)}")
 
     def set_initial_hk_results(self, results: list[tuple[str, bool]]) -> None:
         """app 이 hotkey 초기 등록 후 호출 — 각 행에 ✓/✗/— 반영.

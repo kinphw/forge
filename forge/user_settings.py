@@ -67,6 +67,27 @@ def save(data: dict) -> bool:
         return False
 
 
+# ── 일반 section helpers ──────────────────────────────────────────────────
+
+def get_section(name: str) -> dict:
+    """settings.json 의 한 section 만 dict 로 반환. 없거나 dict 아니면 빈 dict."""
+    raw = load().get(name) or {}
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def update_section(name: str, updates: dict) -> bool:
+    """section 의 여러 항목을 한 번에 update + flush. 기존 항목은 보존."""
+    data = load()
+    section = data.setdefault(name, {})
+    section.update(updates)
+    return save(data)
+
+
+def set_section_entry(name: str, key: str, value) -> bool:
+    """section 의 한 항목 set + flush. update_section 의 단일-키 단축."""
+    return update_section(name, {key: value})
+
+
 # ── keymap helpers ────────────────────────────────────────────────────────
 
 def get_keymap() -> dict[str, Optional[str]]:
