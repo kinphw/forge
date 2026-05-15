@@ -30,6 +30,8 @@ from forge.linter import (
     fit_current_paragraph_to_one_line,
 )
 
+from forge import user_settings
+
 from ..actions import ACTIONS
 from ..tooltip import Tooltip
 
@@ -120,18 +122,23 @@ class RealtimeTab:
             ).pack(side=LEFT, padx=(2, 0))
 
         # ─── hotkey letter StringVars (사용자 편집 가능) + 상태 라벨 dict ────
-        # [ACTIONS][forge.ui.actions.ACTIONS] 의 default_key 가 SSOT — letter 1글자.
+        # 초기값 결정 순서 (3 단계 fallback):
+        #   1. [user_settings][forge.user_settings] keymap 의 사용자 override
+        #   2. [ACTIONS][forge.ui.actions.ACTIONS] 의 default_key
+        # keymap value=None = 명시적 비활성화 (Entry 공란).
         # 비우면 비활성화. 변경 시 GlobalHotkeyManager 에 PostThreadMessage 로
-        # 재등록 요청. 결과는 status 라벨 (✓ / ✗ / —) 로 표시.
-        # dict 키 = hk_id (1-indexed) = ACTIONS 인덱스 + 1.
+        # 재등록 요청 + user_settings.set_keymap_entry 로 즉시 영속화. 결과는
+        # status 라벨 (✓ / ✗ / —) 로 표시. dict 키 = hk_id (1-indexed).
+        _keymap = user_settings.get_keymap()
+        _init_keys: dict[int, str] = {}
+        for i, a in enumerate(ACTIONS, start=1):
+            v = _keymap.get(a.id, a.default_key)
+            _init_keys[i] = v or ""   # None → "" (비활성화 표시)
         self.var_hk_letter: dict[int, tk.StringVar] = {
-            i: tk.StringVar(value=a.default_key)
-            for i, a in enumerate(ACTIONS, start=1)
+            i: tk.StringVar(value=k) for i, k in _init_keys.items()
         }
         # 마지막으로 성공 적용된 letter — 실패 시 revert 기준
-        self._hk_applied: dict[int, str] = {
-            i: a.default_key for i, a in enumerate(ACTIONS, start=1)
-        }
+        self._hk_applied: dict[int, str] = dict(_init_keys)
         # 상태 라벨 위젯 (foreground 동적 변경 위해 reference 보관)
         self._hk_status_lbl: dict[int, ttk.Label] = {}
 
@@ -547,6 +554,7 @@ class RealtimeTab:
             ok = self.app.hotkey_mgr.replace(hk_id, None, "(disabled)")
             self._set_hk_status(hk_id, "—", "#888")
             self._hk_applied[hk_id] = ""
+            user_settings.set_keymap_entry(ACTIONS[hk_id - 1].id, None)
             return
 
         # 검증 — 1자리 영숫자만
@@ -574,6 +582,9 @@ class RealtimeTab:
             self._hk_applied[hk_id] = candidate
             self._set_hk_status(hk_id, "✓", "#1d8a1d")
             self._log(f"[hotkey] hk{hk_id} ← Ctrl+Shift+{candidate} (등록됨)")
+            saved = user_settings.set_keymap_entry(action.id, candidate)
+            if not saved:
+                self._log(f"[hotkey] ⚠ settings.json 저장 실패 — 재실행 시 기본값으로 복귀")
         else:
             # 실패 — Entry 를 직전 적용값으로 revert
             prev = self._hk_applied[hk_id]
@@ -588,15 +599,19 @@ class RealtimeTab:
         lbl.configure(text=text, foreground=color)
 
     def set_initial_hk_results(self, results: list[tuple[str, bool]]) -> None:
-        """app 이 hotkey 초기 등록 후 호출 — 각 행에 ✓/✗ 반영.
+        """app 이 hotkey 초기 등록 후 호출 — 각 행에 ✓/✗/— 반영.
 
-        results 는 hk_id 1~9 순서. 비활성화는 startup 에 없으므로 ✓ or ✗ 만.
+        results 는 hk_id 1~9 순서. user_settings 의 keymap value=None 항목은
+        비활성화 상태로 등록되므로 (vk=None, ok=True) "—" 로 표시.
         """
-        for idx, (label, ok) in enumerate(results):
+        for idx, (_, ok) in enumerate(results):
             hk_id = idx + 1
             if hk_id not in self._hk_status_lbl:
                 continue
-            if ok:
+            # 빈 Entry = 비활성화 (var_hk_letter 초기값이 "" 인 경우)
+            if not self._hk_applied[hk_id]:
+                self._set_hk_status(hk_id, "—", "#888")
+            elif ok:
                 self._set_hk_status(hk_id, "✓", "#1d8a1d")
             else:
                 self._set_hk_status(hk_id, "✗", "#c33")

@@ -83,11 +83,15 @@ class GlobalHotkeyManager:
         self,
         hk_id: int,
         modifiers: int,
-        vk: int,
+        vk: Optional[int],
         callback: Callable[[], Any],
         label: str = "",
     ) -> None:
-        """단축키 정의 추가. start() 전에 호출."""
+        """단축키 정의 추가. start() 전에 호출.
+
+        vk=None 이면 비활성화 상태로 등록 — _run_loop 가 RegisterHotKey skip.
+        사용자가 settings 에서 명시적으로 비활성화한 단축키 표현용.
+        """
         self._defs.append(_HotkeyDef(hk_id, modifiers, vk, callback, label))
 
     def start(self) -> list[tuple[str, bool]]:

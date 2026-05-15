@@ -11,6 +11,7 @@ Forge 메인 GUI.
 """
 from __future__ import annotations
 
+import os
 import sys
 import tkinter as tk
 from dataclasses import dataclass, field
@@ -31,6 +32,8 @@ from forge.hwp_session import (
     list_hwp_instances,
 )
 from forge.formatter.templates import REPORT1_SPEC, ReportSpec
+
+from forge import user_settings
 
 from .actions import ACTIONS
 from .hotkeys import GlobalHotkeyManager, MOD_CONTROL, MOD_SHIFT, vk
@@ -110,12 +113,17 @@ class ForgeApp:
         rt = self.tab_realtime
         mods = MOD_CONTROL | MOD_SHIFT
         self.hotkey_mgr = GlobalHotkeyManager(self.root)
+        # 사용자 keymap override — 누락 키는 default_key, value=None 은 비활성화
+        keymap = user_settings.get_keymap()
         for i, action in enumerate(ACTIONS, start=1):
+            key = keymap.get(action.id, action.default_key)
+            vk_code = vk(key) if key else None
+            label_key = key if key else "(disabled)"
             # 람다 default 인자로 a 캡쳐 — 늦은 binding 사고 방지
             self.hotkey_mgr.add(
-                i, mods, vk(action.default_key),
+                i, mods, vk_code,
                 lambda a=action: a.invoke(rt),
-                f"Ctrl+Shift+{action.default_key} ({action.label})",
+                f"Ctrl+Shift+{label_key} ({action.label})",
             )
 
         results = self.hotkey_mgr.start()
@@ -263,6 +271,23 @@ class ForgeApp:
             body, text=f'"{__tagline__}"',
             foreground="#555", font=("", 10, "italic"),
         ).pack(anchor="w", pady=(8, 16))
+
+        # 설정 폴더 경로 — 클릭하면 탐색기로 폴더 열기
+        # %APPDATA%\Forge\ 는 hidden path 라 못 찾는 사용자를 위한 발견성 보강
+        settings_dir_path = user_settings.settings_dir()
+        ttk.Label(body, text="설정 폴더:", foreground="#666").pack(anchor="w")
+        settings_link = ttk.Label(
+            body, text=str(settings_dir_path),
+            foreground="#0066cc", cursor="hand2", font=("", 9, "underline"),
+        )
+        settings_link.pack(anchor="w", pady=(0, 16))
+        def _open_settings_folder(_evt=None):
+            try:
+                settings_dir_path.mkdir(parents=True, exist_ok=True)
+                os.startfile(str(settings_dir_path))
+            except OSError:
+                pass
+        settings_link.bind("<Button-1>", _open_settings_folder)
 
         ttk.Button(body, text="확인", command=win.destroy, width=10).pack(anchor="e")
 
