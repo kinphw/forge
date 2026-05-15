@@ -133,29 +133,32 @@ _NUMBER_TOKEN_CHARS = frozenset(".()[]{}-")
 
 def _is_body_word(c: str) -> bool:
     """
-    본문 워드 판정 — '순수 번호 토큰 / 섹션 마커 가 아닌 모든 워드' 가 본문.
+    본문 워드 판정 — '마커 / 순수 번호 토큰 이 아닌 모든 워드' 가 본문.
 
     skip 대상:
-      - _is_section_marker — `1.`, `가.`, `Ⅰ.` 등
+      - _is_skip_marker — bullet (`□`/`○`/`◦`/`-`/`·`/`⇨`/`→`) +
+        annotation (`*`/`**`/`***`/`※`/`†`) + section (`1.`/`가.`/`Ⅰ.`) 마커
       - 순수 번호 토큰 — 모든 글자가 다음 중 하나로만 구성:
         digit / 공백 / `.()[]{}-` / Unicode 'No'·'Nl' 카테고리 (① ㉠ Ⅰ 등)
         예: `(1)`, `①`, `1.2.3`
 
     body 인정:
       - alpha (한글 자모/음절·라틴·한자·일본어 등) 포함
-      - alpha 가 없어도 일반 기호 (§, ※, *, # 등 Punctuation/Symbol) 포함
-        → `§33①`, `※주의`, `* 보고서` 등 한국 보고서의 본문 시작 토큰 보호.
+      - alpha 가 없어도 마커 외 일반 기호 (§, # 등 Punctuation/Symbol) 포함
+        → `§33①`, `#태그` 등 한국 보고서의 본문 시작 토큰 보호.
 
     배경:
       tool1 의 "alpha 포함 + '.' 없음" 정의는 한국어 prose 의 자연스러운 끝점
-      (`반갑니다.`) 을 skip 하는 사고. alpha-only 정의는 그 사고는 막지만
-      `§33①` 같은 법조문 인용 본문도 skip 해서 indent 를 다음 한글 워드 위치에
-      잡는 새 사고 발생. 이 함수는 "*번호 토큰* 만 skip" 으로 의도를 정확히
-      복원 — 번호도 섹션 마커도 아닌 일반 기호 워드는 본문으로 흡수.
+      (`반갑니다.`) 을 skip 하는 사고. alpha-only 로 풀면 `§33①` 같은 법조문
+      인용 본문도 skip 해서 indent 를 다음 한글 워드 위치에 잡는 새 사고 발생.
+      그래서 한 차례 "Po/So 기호 워드는 body" 로 풀었더니, 이번엔 `*`/`□` 마커
+      자체가 body 로 흡수돼 indent 가 column 0 에 잡히는 회귀 발생.
+      현 정의: 명시적 마커 집합만 skip 하고, 마커 외 기호 워드는 본문으로
+      흡수 — 두 사고를 동시에 막음.
     """
     if not c:
         return False
-    if _is_section_marker(c):
+    if _is_skip_marker(c):
         return False
     for ch in c:
         if ch.isalpha():           # 한글 음절·자모, 라틴, 한자 등
