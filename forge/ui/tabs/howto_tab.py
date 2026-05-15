@@ -17,13 +17,6 @@ _TABS = [
     ("③ 마크다운",  "개조식 markdown → 새 .hwpx 파일로 변환 (배치)"),
 ]
 
-# 탭 ① 의 단축키 letter 는 사용자가 Entry 에서 변경 가능 — 여기 표기 X.
-_HOTKEYS = [
-    ("정렬·자간",   "자동 정렬, 어절 끌어올림"),
-    ("폰트·크기",   "본문 / 주석 / 헤드라인 / 울릉도 / 빈줄 5 종"),
-    ("reset·변환",  "자간 0 초기화, 선택 영역 → 마크다운 변환"),
-]
-
 # Forge 는 표준 markdown `#`/`##` 헤더를 쓰지 않음 — 개조식 글머리 + callout.
 _MD = [
     ("보고서명: ...",      "대제목 — YAML front-matter (`---` 사이). `#` 헤더 아님"),
@@ -68,13 +61,6 @@ class HowToTab:
         tabs = TtkLabelFrame(c, text="3 탭 구성", padding=10)
         tabs.pack(fill="x", pady=(0, 10))
         _two_col(tabs, _TABS)
-
-        hk = TtkLabelFrame(
-            c, text="탭 ① 단축키 — letter 는 탭 ① 의 Entry 에서 변경",
-            padding=10,
-        )
-        hk.pack(fill="x", pady=(0, 10))
-        _two_col(hk, _HOTKEYS)
 
         md = TtkLabelFrame(
             c, text="탭 ③ 마크다운 문법 — 개조식 (표준 `#` 헤더 미사용)",
