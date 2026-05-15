@@ -304,16 +304,23 @@ def 십자가(hwp: Any) -> None:
 
 
 def 꺽쇠_홑(hwp: Any) -> None:
-    """「」 홑낫표 쌍 — 맑은 고딕 폰트로 박고 캐럿 가운데. 사용자 즉시 내용 타이핑."""
-    p.set_font_face(hwp, "맑은 고딕")
-    p.insert_text(hwp, "「」")
+    """「」 홑낫표 쌍 — 맑은 고딕으로 박고 캐럿 가운데 + typing attr 복귀.
+
+    동작 순서:
+      1. 입력 직전 typing attr 의 7 면 face/type 백업
+      2. 맑은 고딕으로 변경 + 「」 박기
+      3. 백업한 7 면 복원 (사용자 가운데 타이핑은 원래 폰트로)
+      4. 캐럿을 두 글자 사이로 이동
+    """
+    with p.temp_font_face(hwp, "맑은 고딕"):
+        p.insert_text(hwp, "「」")
     hwp.HAction.Run("MoveLeft")
 
 
 def 꺽쇠_겹(hwp: Any) -> None:
-    """『』 겹낫표 쌍 — 맑은 고딕 폰트, 책·문헌 제목 강조용. 캐럿 가운데."""
-    p.set_font_face(hwp, "맑은 고딕")
-    p.insert_text(hwp, "『』")
+    """『』 겹낫표 쌍 — 책·문헌 제목 강조용. 「」 와 동일 패턴."""
+    with p.temp_font_face(hwp, "맑은 고딕"):
+        p.insert_text(hwp, "『』")
     hwp.HAction.Run("MoveLeft")
 
 

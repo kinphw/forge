@@ -12,7 +12,8 @@ tool2의 `한컴라이브러리.기본한컴` 411 메서드 중 본 프로젝트
 from __future__ import annotations
 
 import re
-from typing import Any, Literal, Optional
+from contextlib import contextmanager
+from typing import Any, Iterator, Literal, Optional
 
 from ..com_helpers import set_param
 
@@ -205,6 +206,52 @@ def set_font_face(hwp: Any, font: str) -> None:
         "FaceNameLatin":    font, "FontTypeLatin":    1,
         "FaceNameHangul":   font, "FontTypeHangul":   1,
     })
+
+
+_CHARSHAPE_FACE_KEYS = (
+    "FaceNameHangul", "FontTypeHangul",
+    "FaceNameLatin",  "FontTypeLatin",
+    "FaceNameUser",   "FontTypeUser",
+    "FaceNameSymbol", "FontTypeSymbol",
+    "FaceNameOther",  "FontTypeOther",
+    "FaceNameJapanese", "FontTypeJapanese",
+    "FaceNameHanja",  "FontTypeHanja",
+)
+
+
+def get_typing_face_state(hwp: Any) -> dict:
+    """현재 typing attr 의 7 면 face/type 백업.
+
+    selection 이 있으면 그 영역, 없으면 캐럿 위치의 typing attr 를 읽음
+    (HWP COM 의 GetDefault 동작). 복원 시 그대로 set_param 에 넘기면 됨.
+    """
+    cs = hwp.HParameterSet.HCharShape
+    hwp.HAction.GetDefault("CharShape", cs.HSet)
+    snapshot: dict = {}
+    for k in _CHARSHAPE_FACE_KEYS:
+        v = getattr(cs, k, None)
+        if v is None:
+            continue
+        snapshot[k] = int(v) if k.startswith("FontType") else str(v)
+    return snapshot
+
+
+@contextmanager
+def temp_font_face(hwp: Any, font: str) -> Iterator[None]:
+    """with 블록 동안만 typing attr 의 폰트 face 를 변경. 종료 시 원복.
+
+    예:
+        with temp_font_face(hwp, "맑은 고딕"):
+            insert_text(hwp, "「」")
+        # 여기서부터 typing attr 는 원래 폰트로 복귀
+    """
+    backup = get_typing_face_state(hwp)
+    set_font_face(hwp, font)
+    try:
+        yield
+    finally:
+        if backup:
+            set_param(hwp, "CharShape", backup)
 
 
 def set_text_color(hwp: Any, r: int, g: int, b: int) -> None:
