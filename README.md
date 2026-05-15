@@ -25,6 +25,9 @@
   - 한/글에 이미 열려 있는 .hwp/.hwpx 에 룰 1 개씩 적용
   - 출력은 입력 형식 보존 (저장은 사용자가 한/글에서)
 
+[사용자 키] → OS → [hotkeys.py 메시지 펌프] → [app.py: ACTIONS 등록] → [actions.ACTIONS.invoke] → [realtime_tab._run_*] → [linter/*.py 알고리즘] → [한/글 COM]
+
+
 ## 형식 정책 (HWP / HWPX)
 
 - **신규 산출물 = .hwpx** (배치 모드 강제)
