@@ -20,8 +20,9 @@ from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 from tkinter.constants import LEFT, RIGHT, BOTH, X, Y, W, E
 from tkinter.ttk import LabelFrame as TtkLabelFrame, PanedWindow as TtkPanedWindow
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
+from forge import user_settings
 from forge.formatter import generate_hwpx_via_com, parse_markdown, save_as_hwpx
 from forge.hwp_session import (
     MultipleHwpInstancesError,
@@ -113,8 +114,13 @@ class MarkdownTab:
         meta_bar = ttk.Frame(self.frame)
         meta_bar.pack(fill=X, pady=(0, 8))
 
+        # 영속화된 값 (user_settings.markdown section) → var 초기값. 누락 시
+        # code default fallback. var_date 만 의도적 제외 — 일자는 매번 다르므로
+        # 영속화하면 어제 날짜가 그대로 박히는 사고.
+        md_settings = user_settings.get_section("markdown")
+
         ttk.Label(meta_bar, text="작성부서:", width=10).pack(side=LEFT)
-        self.var_dept = tk.StringVar(value="")
+        self.var_dept = tk.StringVar(value=str(md_settings.get("dept", "")))
         ttk.Entry(meta_bar, textvariable=self.var_dept, width=30).pack(side=LEFT, padx=(0, 12))
 
         ttk.Label(meta_bar, text="작성일:", width=8).pack(side=LEFT)
@@ -129,13 +135,18 @@ class MarkdownTab:
         spec_bar.pack(fill=X, pady=(0, 8))
 
         m = self.state.spec.margins
+        def _mg(key: str, default: float) -> float:
+            try:
+                return float(md_settings.get(f"margin_{key}", default))
+            except (TypeError, ValueError):
+                return default
         self.var_margins = {
-            "left":   tk.DoubleVar(value=m.left),
-            "right":  tk.DoubleVar(value=m.right),
-            "top":    tk.DoubleVar(value=m.top),
-            "bottom": tk.DoubleVar(value=m.bottom),
-            "header": tk.DoubleVar(value=m.header),
-            "footer": tk.DoubleVar(value=m.footer),
+            "left":   tk.DoubleVar(value=_mg("left",   m.left)),
+            "right":  tk.DoubleVar(value=_mg("right",  m.right)),
+            "top":    tk.DoubleVar(value=_mg("top",    m.top)),
+            "bottom": tk.DoubleVar(value=_mg("bottom", m.bottom)),
+            "header": tk.DoubleVar(value=_mg("header", m.header)),
+            "footer": tk.DoubleVar(value=_mg("footer", m.footer)),
         }
         margin_labels = [("좌", "left"), ("우", "right"), ("위", "top"),
                           ("아래", "bottom"), ("머리", "header"), ("꼬리", "footer")]
@@ -150,7 +161,12 @@ class MarkdownTab:
         ttk.Separator(spec_bar, orient="vertical").pack(side=LEFT, fill=Y, padx=(0, 8))
 
         ttk.Label(spec_bar, text="줄간격").pack(side=LEFT, padx=(0, 4))
-        self.var_line_default = tk.IntVar(value=self.state.spec.line_spacing_default)
+        _ln_default = self.state.spec.line_spacing_default
+        try:
+            _ln_init = int(md_settings.get("line_default", _ln_default))
+        except (TypeError, ValueError):
+            _ln_init = _ln_default
+        self.var_line_default = tk.IntVar(value=_ln_init)
         ttk.Spinbox(
             spec_bar, from_=100, to=300, increment=5,
             textvariable=self.var_line_default, width=5,
@@ -192,6 +208,11 @@ class MarkdownTab:
         self.log.configure(yscrollcommand=log_scroll.set)
         self.log.pack(side=LEFT, fill=BOTH, expand=True)
         log_scroll.pack(side=RIGHT, fill=Y)
+
+        # 영속화: 변경 감지 (trace) 와 영속화된 값을 spec 에 silent 동기화.
+        # 사용자가 "설정 적용" 안 눌러도 영속화된 margin/줄간격이 다음 변환에 반영.
+        self._wire_markdown_persistence()
+        self._apply_vars_to_spec(silent=True)
 
     # 한/글 연결은 lazy — 변환 클릭 시 app.ensure_hwp() 호출.
     # 따로 on_hwp_ready 콜백 불필요.
@@ -376,8 +397,18 @@ class MarkdownTab:
     #   - 작성부서·작성일: UI 입력 (var_dept, var_date) — _convert_worker 에서 직접 읽음
 
     # ─────────────────────────────────────── 양식 spec (구 ② 기본정보 탭)
-    def _apply_spec(self) -> None:
-        """페이지 여백·줄간격 입력 → state.spec 반영. 다음 변환부터 적용."""
+    def _apply_vars_to_spec(self, silent: bool = False) -> bool:
+        """var_margins/var_line_default → state.spec 반영.
+
+        Args:
+            silent: True 면 ValueError/TypeError swallow + False 반환.
+                    False 면 messagebox 로 사용자에게 안내 + False 반환.
+        Returns:
+            True 면 mutate 성공.
+
+        __init__ 끝의 silent=True 호출은 영속화된 var 값을 spec 에 동기화하기
+        위함. "설정 적용" 버튼은 silent=False 로 명시적 컨펌 다이얼로그 노출.
+        """
         from forge.formatter.templates import PageMargins
         try:
             self.state.spec.margins = PageMargins(
@@ -389,9 +420,57 @@ class MarkdownTab:
                 footer=float(self.var_margins["footer"].get()),
             )
             self.state.spec.line_spacing_default = int(self.var_line_default.get())
-            messagebox.showinfo("적용됨", "양식 spec 이 다음 변환부터 적용됩니다.")
+            return True
         except (ValueError, TypeError) as e:
-            messagebox.showerror("입력 오류", f"숫자 형식 오류: {e}")
+            if not silent:
+                messagebox.showerror("입력 오류", f"숫자 형식 오류: {e}")
+            return False
+
+    def _apply_spec(self) -> None:
+        """'설정 적용' 버튼 핸들러 — 명시적 적용 + 확인 다이얼로그."""
+        if self._apply_vars_to_spec(silent=False):
+            messagebox.showinfo("적용됨", "양식 spec 이 다음 변환부터 적용됩니다.")
+
+    # ─────────────────────────────────────── 영속화 (var_date 제외)
+    def _wire_markdown_persistence(self) -> None:
+        """var_dept/margins/line_default 변경을 user_settings 의 'markdown'
+        section 에 500 ms 디바운스로 자동 저장. var_date 만 의도적 제외."""
+        self._md_save_pending: dict[str, object] = {}
+        self._md_save_after_id: Optional[str] = None
+        pairs: list[tuple[str, tk.Variable]] = [
+            ("dept",          self.var_dept),
+            ("margin_left",   self.var_margins["left"]),
+            ("margin_right",  self.var_margins["right"]),
+            ("margin_top",    self.var_margins["top"]),
+            ("margin_bottom", self.var_margins["bottom"]),
+            ("margin_header", self.var_margins["header"]),
+            ("margin_footer", self.var_margins["footer"]),
+            ("line_default",  self.var_line_default),
+        ]
+        for key, var in pairs:
+            var.trace_add(
+                "write",
+                lambda *_, k=key, v=var: self._schedule_md_save(k, v.get()),
+            )
+
+    def _schedule_md_save(self, key: str, value: object) -> None:
+        self._md_save_pending[key] = value
+        if self._md_save_after_id is not None:
+            try:
+                self.app.root.after_cancel(self._md_save_after_id)
+            except Exception:
+                pass
+        self._md_save_after_id = self.app.root.after(500, self._flush_md_save)
+
+    def _flush_md_save(self) -> None:
+        self._md_save_after_id = None
+        if not self._md_save_pending:
+            return
+        updates = dict(self._md_save_pending)
+        self._md_save_pending.clear()
+        ok = user_settings.update_section("markdown", updates)
+        if not ok:
+            self._log(f"[settings] ⚠ markdown section 저장 실패 — {list(updates)}")
 
     def _reset_spec(self) -> None:
         """기본값(REPORT1_SPEC) 으로 되돌림."""
