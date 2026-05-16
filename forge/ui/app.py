@@ -172,6 +172,11 @@ class ForgeApp:
             top, text="💾 설정 저장", command=self._save_all_settings, width=14,
         ).pack(side=RIGHT, padx=(6, 0))
 
+        # 버전 라벨 — 💾 설정 저장 바로 왼쪽. About 안 열어도 한눈에 확인.
+        ttk.Label(
+            top, text=f"v{__version__}", foreground="#888",
+        ).pack(side=RIGHT, padx=(12, 6))
+
         # 메인 노트북
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill=BOTH, expand=True, padx=10, pady=(0, 10))
