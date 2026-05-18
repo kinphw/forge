@@ -101,6 +101,12 @@ class TableRenderer(ElementRenderer):
         # 내부선도 외곽과 동일 색·굵기 (subsection 그리드 일관 시각)
         p.set_table_inner_line_color(hwp, *ts.border_color)
         p.set_table_inner_line_thickness(hwp, ts.border_thick, ts.border_thick)
+        # 외곽 좌·우 변만 "없음" 처리 (상·하 + 내부선은 유지).
+        # 셀 블록 = 표 전체 상태이므로 CellBorderFill 의 BorderType*=0 이 표
+        # 외곽 변에 적용. 위 set_table_border_thickness 의 굵기 값은 살아있지만
+        # type=0(없음) 이라 시각상 안 보임.
+        if ts.hide_side_borders:
+            p.set_table_border_type(hwp, top=1, bottom=1, left=0, right=0)
         p.run(hwp, "Cancel")              # 블록 해제 (캐럿은 마지막 셀에 남음)
         p.set_current_pos(hwp, saved_pos) # 표 생성 직후 위치 = 첫 셀로 복원
 
@@ -109,7 +115,7 @@ class TableRenderer(ElementRenderer):
         cell_idx = 0
         for h in headers:
             p.set_table_bg(hwp, *ts.header_bg)
-            p.set_font(hwp, ts.header_font, ts.header_size_pt, bold=False)
+            p.set_font(hwp, ts.header_font, ts.header_size_pt, bold=ts.header_bold)
             p.align(hwp, "center")
             p.insert_text(hwp, h)
             if cell_idx < last_idx:
@@ -117,10 +123,17 @@ class TableRenderer(ElementRenderer):
             cell_idx += 1
 
         # ── 데이터 행 (배경 미설정 = 흰색 + aligns 적용) ──
+        # GFM aligns 가 전부 default "left" (= `---` 표기 없음) 면 사용자가
+        # 정렬 의도 명시 안 한 것 — body_align(=center) 으로 override. 어떤
+        # 셀이라도 다른 값(=`:---` 등 명시) 있으면 사용자 의도 존중하고 aligns
+        # 그대로 사용. body_line_spacing(=130%) 은 모든 본문 셀에 일괄 적용.
+        all_default = all(a == "left" for a in aligns)
+        effective_aligns = [ts.body_align] * ncols if all_default else aligns
         for row in rows:
             for col, cell in enumerate(row):
                 p.set_font(hwp, ts.body_font, ts.body_size_pt, bold=False)
-                p.align(hwp, aligns[col])
+                p.set_line_spacing(hwp, ts.body_line_spacing)
+                p.align(hwp, effective_aligns[col])
                 p.insert_text(hwp, cell)
                 if cell_idx < last_idx:
                     p.move_table_right(hwp)

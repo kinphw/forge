@@ -36,14 +36,20 @@ class TableStyle:
     균형.
     """
     label_col_mm: float = 25.0
-    border_color: tuple[int, int, int] = (62, 87, 165)    # subsection_border_rgb 와 동일 진파랑
+    border_color: tuple[int, int, int] = (80, 80, 80)     # 진회색 (헤더 회색 배경과 무채색 일관)
     border_thick: int = 6
-    header_bg: tuple[int, int, int] = (224, 229, 250)     # subsection_marker_bg_rgb 라벤더
-    header_font: str = "HY헤드라인M"
+    hide_side_borders: bool = True                        # 표 외곽 좌·우 변만 "없음" 처리 (상·하·내부선은 유지)
+    header_bg: tuple[int, int, int] = (242, 242, 242)     # 한컴 팔레트 "하양 5% 어둡게"
+    header_font: str = "맑은 고딕"
     header_size_pt: float = 12.0
-    body_font: str = "휴먼명조"
+    header_bold: bool = True                              # 헤더만 Bold
+    body_font: str = "맑은 고딕"
     body_size_pt: float = 12.0
     row_height_mm: float = 8.4                            # subsection_box_height_mm 와 일관
+    # 본문(데이터) 셀 정렬·행간 — GFM `aligns` 표기가 모두 default("left",
+    # = `---`) 일 때 본 값으로 override. `:---`/`---:`/`:---:` 명시 시 그대로.
+    body_align: str = "center"                            # 수평 정렬 (헤더와 동일 패턴)
+    body_line_spacing: int = 130                          # 문단 행간 (%)
     # 한/글 표 default 셀당 inflate (mm). 진단으로 확정: 한/글이 우리 ColWidth
     # 와 별개로 셀당 +3.67mm (좌+우 default cell padding ≈ 1.8mm × 2) 를 시각
     # 폭에 추가. set_cell_margin_zero 호출은 텍스트 정렬 여백만 변경하고 시각
