@@ -16,6 +16,7 @@ from .annotation import AnnotationRenderer
 from .conclusion import ConclusionRenderer
 from .note_callout import NoteCalloutRenderer
 from .attachment import AttachmentRenderer
+from .table import TableRenderer
 
 __all__ = [
     "ElementRenderer",
@@ -27,4 +28,5 @@ __all__ = [
     "ConclusionRenderer",
     "NoteCalloutRenderer",
     "AttachmentRenderer",
+    "TableRenderer",
 ]

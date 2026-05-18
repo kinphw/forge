@@ -429,6 +429,62 @@ class AttachmentRenderer(ElementRenderer):
 
 ---
 
+### 2.9 TableRenderer — 표 (GFM 부분집합)
+
+**입력 (마크다운)**: [markdown-spec.md §9](markdown-spec.md#9-표-gfm-부분집합)
+
+```
+| 구분 | 현행 | 금감원 | 금융위안 |
+|---|---|---|:---:|
+| §5의2 | 가나다 | 라마바 | 사아자 |
+| §5의3 | a | b | c |
+```
+
+**출력 (시각)**: tool2 `행안부초록표` (한컴라이브러리_decompiled.py:3053+)
+권위 패턴 1:1 복제.
+
+- 1열(라벨) 폭: **25mm 고정** (D1)
+- 나머지 (N-1) 열: `(usable_width - 25) ÷ (N-1)` 균등 분배 (D2)
+- 행 높이: 8.4mm (한/글 자동 확장으로 본문 가변 흡수)
+- 셀 padding: **0mm** — tool2 `셀여백제로` 권위 (D-padding)
+- 외곽·내부선: RGB(62,87,165) 진파랑, 굵기 6 — subsection 일관
+- **헤더 행**: 라벤더 RGB(224,229,250) 배경 + HY헤드라인M 12pt + 가운데 (D7)
+- **데이터 행**: 흰색(배경 미설정) + 휴먼명조 12pt + `aligns` 적용 (D3)
+- 표 탈출: `escape_table()` = tool2 `표탈출` (`CloseEx → MoveDown → CloseEx`)
+  (D-탈출)
+
+**COM 액션 시퀀스** (tool2 `행안부초록표` 패턴):
+1. `make_table([25, w2, ..., wN], [8.4] * (1 + len(rows)))`
+2. `set_cell_margin_zero()` (셀여백 0)
+3. `set_table_border_color(*border_color)`, `set_table_border_thickness(6,6,6,6)`
+4. `set_table_inner_line_color(*border_color)`, `set_table_inner_line_thickness(6,6)`
+5. 헤더 셀 순회: `set_table_bg(라벤더)` → `set_font(HY헤드라인M, 12pt)`
+   → `align('center')` → `insert_text(헤더)` → 마지막 아니면 `move_table_right()`
+6. 데이터 셀 순회: `set_font(휴먼명조, 12pt)` → `align(aligns[col] or 'left')`
+   → `insert_text(셀)` → 마지막 셀 아니면 `move_table_right()` (배경 호출
+   생략 = 헤더 잔류 방지 + 흰색 유지, tool2 권위 패턴)
+7. `escape_table()` → `align('justify')`
+
+**위 빈 줄**: dispatcher (`_dispatch_nodes`) 가 자동 prepend — 본 렌더러
+내부에서 emit 금지.
+
+**시그니처**:
+```python
+class TableRenderer(ElementRenderer):
+    def render(
+        self,
+        headers: list[str],
+        rows: list[list[str]],
+        aligns: list[str] | None = None,
+    ) -> None:
+        ...
+```
+
+**STAGE 3 재활용**:
+- 실시간 모드 Ctrl+Shift+X (selection→md) 가 dispatcher 공유 — 자동 지원.
+
+---
+
 ## 3. STAGE 1 ↔ STAGE 3 통합
 
 ### 3.1 STAGE 1 (배치 모드 = 마크다운 변환)

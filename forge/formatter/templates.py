@@ -26,6 +26,27 @@ class PageMargins:
 
 
 @dataclass
+class TableStyle:
+    """표 렌더러 spec — tool2 `행안부초록표` (line 3053+) 권위 패턴 + subsection
+    색 일관.
+
+    1열(라벨) = 25mm 고정, 나머지 (N-1) 열 = (usable_width - 25) / (N-1) 균등.
+    셀 padding = 0 (tool2 `셀여백제로` 권위). 데이터 셀 폰트는 본문 15pt 대비
+    한 단계 축소된 12pt — 산출물 4열 표(셀 폭 ≈47mm) 에서 가독성·페이지 수용
+    균형.
+    """
+    label_col_mm: float = 25.0
+    border_color: tuple[int, int, int] = (62, 87, 165)    # subsection_border_rgb 와 동일 진파랑
+    border_thick: int = 6
+    header_bg: tuple[int, int, int] = (224, 229, 250)     # subsection_marker_bg_rgb 라벤더
+    header_font: str = "HY헤드라인M"
+    header_size_pt: float = 12.0
+    body_font: str = "휴먼명조"
+    body_size_pt: float = 12.0
+    row_height_mm: float = 8.4                            # subsection_box_height_mm 와 일관
+
+
+@dataclass
 class BulletStyle:
     """글머리 1단계 spec — tool2 금감원글머리지정 11속성과 1:1 대응."""
     md_glyph: str               # md 입력 글머리 (□ ○ - ·)
@@ -159,6 +180,9 @@ class ReportSpec:
     attach_header_size_pt: float = 15.0
     attach_header_width_mm: float = 22.0    # "붙임 N" 글자 더 길어 폭 확장
     attach_body_size_pt: float = 13.0
+
+    # 표 (TableRenderer) — tool2 행안부초록표 권위 패턴
+    table: TableStyle = field(default_factory=TableStyle)
 
     def clone(self, **overrides) -> "ReportSpec":
         """일부 필드만 바꾼 사본 반환 (사용자 테일러링용)."""

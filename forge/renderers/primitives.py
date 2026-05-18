@@ -465,6 +465,36 @@ def move_table_right(hwp: Any, count: int = 1) -> None:
         hwp.HAction.Run("TableRightCellAppend")
 
 
+def escape_table(hwp: Any) -> None:
+    """표 밖으로 캐럿 탈출 — tool2 `표탈출` (line 913-918) 1:1 재현.
+
+    CloseEx → MoveDown → CloseEx (3 액션). 다행 표 캐럿이 표 밖으로 완전히
+    빠져나오게 한다. 1×1·1×N 표는 기존 4 렌더러처럼 move_right + break_para
+    로도 동작하지만, 다행 표는 본 권위 패턴이 안전.
+    """
+    hwp.HAction.Run("CloseEx")
+    hwp.HAction.Run("MoveDown")
+    hwp.HAction.Run("CloseEx")
+
+
+def select_all_cells(hwp: Any) -> None:
+    """현재 캐럿이 위치한 표의 모든 셀을 블록 선택. 한/글 F5×3 등가.
+
+    tool2 `금감원페이지소제목` (line 14321-14322) 권위 패턴:
+        TableCellBlock          # F5 — 현재 셀 블록 시작
+        TableCellBlockExtend    # F5 — 인접 셀로 확장 (행)
+        TableCellBlockExtend    # F5 — 다시 확장 (표 전체)
+
+    배경: `CellBorderFill` / `TablePropertyDialog` 액션은 현재 셀 또는 선택
+    블록에만 적용. 표 외곽선·내부선·셀여백을 표 전체에 일괄 적용하려면
+    호출 전 본 헬퍼 필수. 호출 후 `run(hwp, "Cancel")` 로 블록 해제 (캐럿은
+    표 시작 셀에 남음).
+    """
+    hwp.HAction.Run("TableCellBlock")
+    hwp.HAction.Run("TableCellBlockExtend")
+    hwp.HAction.Run("TableCellBlockExtend")
+
+
 # ============================================================================
 # 위치
 # ============================================================================

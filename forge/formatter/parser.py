@@ -34,6 +34,7 @@ NodeType = Literal[
     "conclusion",   # => 결론 화살표
     "callout",      # [참고] / [붙임] 박스
     "blank",        # 빈 줄 (구조 유지용)
+    "table",        # GFM 표 (헤더 + 구분선 + 데이터 N행)
 ]
 
 
@@ -48,6 +49,10 @@ class Node:
     callout_number: Optional[int] = None  # [붙임 1], [붙임 2] ...
     annotation_kind: Optional[str] = None  # 'ref' (*/**) | 'general' (※)
     children: list["Node"] = field(default_factory=list)  # callout 내부 본문
+    # ─── table 노드 전용 (다른 type 에선 빈 리스트로 무시) ───
+    headers: list[str] = field(default_factory=list)
+    rows: list[list[str]] = field(default_factory=list)
+    aligns: list[str] = field(default_factory=list)  # 'left'|'center'|'right'
 
 
 @dataclass
@@ -87,6 +92,9 @@ ANNOTATION_REF_RE = re.compile(r"^(\*+)\s+(.+)$")
 ANNOTATION_GEN_RE = re.compile(r"^[※†]\s*(.+)$")  # 당구장 ※ 또는 십자가 †
 CALLOUT_NOTE_RE = re.compile(r"^\[참고\]\s*$")
 CALLOUT_ATTACH_RE = re.compile(r"^\[붙임(?:\s+(\d+))?\]\s*$")
+# GFM 표 — 행은 `|...|` 형식 (양끝 `|` 필수), 구분선은 `|---|---|...|` 또는 정렬 표기
+TABLE_ROW_RE = re.compile(r"^\s*\|.+\|\s*$")
+TABLE_SEP_RE = re.compile(r"^\s*\|(\s*:?-{3,}:?\s*\|)+\s*$")
 
 
 def parse_markdown(src: str) -> MarkdownDocument:
@@ -156,6 +164,17 @@ def _parse_body(body: str) -> list[Node]:
             ))
             i += 1 + consumed
             continue
+
+        # 표 — `|...|` + 다음 줄이 구분선이면 표 시작.
+        # 구분선이 아니면 일반 텍스트로 fallback (아래 _parse_single_line 분기에서
+        # 매칭 실패 → '마커 없는 본문' 처리).
+        if TABLE_ROW_RE.match(line) and i + 1 < len(lines):
+            next_line = lines[i + 1].strip()
+            if TABLE_SEP_RE.match(next_line):
+                table_node, consumed = _parse_table(lines, i)
+                nodes.append(table_node)
+                i += consumed
+                continue
 
         # 단일 라인 노드들
         node = _parse_single_line(line)
@@ -236,3 +255,61 @@ def _parse_single_line(line: str) -> Optional[Node]:
             return Node(type="bullet", marker=marker, text=text, summary=summary)
 
     return None
+
+
+# ==========================================================================
+# 표 (GFM 부분집합)
+# ==========================================================================
+
+def _split_row(line: str) -> list[str]:
+    """`| a | b | c |` → ['a', 'b', 'c']. 양끝 `|` 제거 + 내부 split + 셀 trim."""
+    inner = line.strip().strip("|")
+    return [cell.strip() for cell in inner.split("|")]
+
+
+def _parse_aligns(sep_line: str) -> list[str]:
+    """`|:---|---:|:---:|---|` → ['left','right','center','left']."""
+    cells = _split_row(sep_line)
+    out: list[str] = []
+    for c in cells:
+        left = c.startswith(":")
+        right = c.endswith(":")
+        out.append(
+            "center" if (left and right) else
+            "right" if right else
+            "left"
+        )
+    return out
+
+
+def _parse_table(lines: list[str], start: int) -> tuple[Node, int]:
+    """헤더(start) + 구분선(start+1) + 데이터행 N개 → Node(type='table').
+
+    종료 조건: 빈 줄 / `|` 로 시작하지 않는 줄 / 문서 끝.
+    데이터 행 셀 수 < 헤더 셀 수 → 빈 문자열로 패딩 (T3).
+    데이터 행 셀 수 > 헤더 셀 수 → 초과 셀은 슬라이스로 무시 (T4).
+                                   ※ 무시 사실은 dispatcher 가 log 경고.
+    Returns: (Node, consumed) — consumed = 처리한 라인 수.
+    """
+    headers = _split_row(lines[start])
+    aligns = _parse_aligns(lines[start + 1])
+    ncols = len(headers)
+    rows: list[list[str]] = []
+    j = start + 2
+    while j < len(lines):
+        raw = lines[j]
+        line = raw.strip()
+        if not line or not TABLE_ROW_RE.match(line):
+            break
+        cells = _split_row(line)
+        if len(cells) < ncols:
+            cells = cells + [""] * (ncols - len(cells))
+        elif len(cells) > ncols:
+            cells = cells[:ncols]
+        rows.append(cells)
+        j += 1
+    node = Node(type="table")
+    node.headers = headers
+    node.rows = rows
+    node.aligns = aligns
+    return node, j - start

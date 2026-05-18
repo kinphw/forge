@@ -117,7 +117,7 @@ forge/                          ★ 단일 src 패키지
 ├── com_helpers.py              set_param() — 5 단계 COM 패턴 1 줄 헬퍼
 ├── hwp_session.py              ROT enum + DRM 호환 spawn + picker
 ├── diagnose.py                 COM attach 진단 스크립트
-├── renderers/                  ★ 마크다운 요소 8 종 독립 렌더러
+├── renderers/                  ★ 마크다운 요소 9 종 독립 렌더러
 │   ├── base.py                 ElementRenderer 추상 베이스
 │   ├── primitives.py           표·셀·폰트 공통 COM 헬퍼
 │   ├── metadata.py             대제목 + 부서·일자 stamp
@@ -127,7 +127,8 @@ forge/                          ★ 단일 src 패키지
 │   ├── annotation.py           * ※ † 주석
 │   ├── conclusion.py           => 결론 박스
 │   ├── note_callout.py         [참고] 박스
-│   └── attachment.py           [붙임] 페이지 break
+│   ├── attachment.py           [붙임] 페이지 break
+│   └── table.py                GFM 표 → 한/글 표 (tool2 행안부초록표 패턴)
 ├── formatter/                  md → 한/글 본문 (배치 모드 진입점)
 │   ├── parser.py               md → MarkdownDocument 노드 트리
 │   ├── templates.py            ReportSpec / BulletStyle 등 양식 dataclass

@@ -26,6 +26,7 @@ from ..renderers import (
     NoteCalloutRenderer,
     SectionRenderer,
     SubsectionRenderer,
+    TableRenderer,
 )
 from ..renderers import primitives as p
 from ..linter import (
@@ -294,6 +295,14 @@ def _dispatch_one(hwp: Any, node: Node, spec: ReportSpec) -> None:
             NoteCalloutRenderer(hwp, spec).render(lines)
         else:
             AttachmentRenderer(hwp, spec).render(node.callout_number, lines)
+        return
+
+    if node.type == "table":
+        TableRenderer(hwp, spec).render(
+            headers=node.headers,
+            rows=node.rows,
+            aligns=node.aligns or None,
+        )
         return
 
     # 알 수 없는 타입 — 마커 없는 본문과 동일 처리 (annotation 폰트로)
