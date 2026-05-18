@@ -57,15 +57,24 @@ class TableRenderer(ElementRenderer):
             aligns = aligns + ["left"] * (ncols - len(aligns))
 
         # ── 열 폭 산정 (D1+D2) ──────────────────────────
-        # usable = 페이지 폭 205mm - 좌우 여백.
-        # 1열 라벨 = 25mm 고정, 나머지는 (usable - 25) / (N-1) 균등.
-        # N==1 인 경우(드물지만 spec 정의) 전체 폭을 1열에 할당.
-        usable_width = 205 - (s.margins.left + s.margins.right)
+        # 의도하는 시각 표 폭 = (A4 210mm) - (좌+우 여백) - width_safety_mm.
+        # 좌우 여백은 라이브 측정 (measure_para_margin_mm). 실패 시 spec 값.
+        # 1열 = label_col_mm 고정 시각, 나머지 = 균등 분배 시각.
+        live_margin_mm = p.measure_para_margin_mm(hwp)
+        spec_margin_mm = float(s.margins.left + s.margins.right)
+        margin_mm = live_margin_mm if live_margin_mm > 0 else spec_margin_mm
+        usable_width = 210 - margin_mm - ts.width_safety_mm
         if ncols == 1:
-            cols_mm = [float(usable_width)]
+            visual_cols_mm = [float(usable_width)]
         else:
             rest = (usable_width - ts.label_col_mm) / (ncols - 1)
-            cols_mm = [ts.label_col_mm] + [rest] * (ncols - 1)
+            visual_cols_mm = [ts.label_col_mm] + [rest] * (ncols - 1)
+        # 한/글이 ColWidth 와 별개로 셀당 default cell padding (≈ 3.67mm) 을
+        # 시각 폭에 자동 추가하므로, make_table 호출 시 각 셀에서 본 값을
+        # 미리 빼서 시각 폭이 의도 (visual_cols_mm) 와 일치하게 한다.
+        # 진단(scripts/diagnose_table_width.py): 보정 안 하면 165mm 의도 표가
+        # 시각 180mm 로 그려져 페이지 본문 폭 170mm 를 약 10mm 초과.
+        cols_mm = [w - ts.cell_inflation_mm for w in visual_cols_mm]
 
         rows_mm = [ts.row_height_mm] * nrows
 
@@ -82,6 +91,7 @@ class TableRenderer(ElementRenderer):
         # 첫 셀 위치를 PosBySet 으로 저장 → 셀 블록 외곽선 처리 → 첫 셀 복원.
         saved_pos = p.get_current_pos(hwp)
         p.select_all_cells(hwp)
+        p.set_table_outside_margin_zero(hwp)  # 표 폭이 페이지 본문 폭 초과 방지
         p.set_cell_margin_zero(hwp)
         p.set_table_border_color(hwp, *ts.border_color)
         p.set_table_border_thickness(

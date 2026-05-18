@@ -365,6 +365,21 @@ def set_cell_margin_zero(hwp: Any) -> None:
     })
 
 
+def set_table_outside_margin_zero(hwp: Any) -> None:
+    """현재 표의 외부 4방향 여백을 0으로. tool2 `표밖여백제로` (line 835-845) 1:1.
+
+    표 외부 여백(OutsideMargin) 은 표 자체의 폭에 합산되는 한/글 기본 보정값
+    (좌우 약 1~2mm). cols_mm 합과 페이지 본문 폭을 정확히 일치시키려면 본
+    헬퍼 호출 필수 — 안 부르면 페이지 본문 폭을 약간 초과한다.
+    """
+    set_param(hwp, "TablePropertyDialog", {
+        "OutsideMarginTop":    mm_to_hwp(hwp, 0.0),
+        "OutsideMarginBottom": mm_to_hwp(hwp, 0.0),
+        "OutsideMarginLeft":   mm_to_hwp(hwp, 0.0),
+        "OutsideMarginRight":  mm_to_hwp(hwp, 0.0),
+    })
+
+
 # 모든 셀·표 테두리 작업은 단일 액션 'CellBorderFill' 사용.
 # (출처: tool2 한컴라이브러리 — 표테두리굵기/타입/색·표내부선*·표테두리단일선)
 

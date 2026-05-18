@@ -44,6 +44,15 @@ class TableStyle:
     body_font: str = "휴먼명조"
     body_size_pt: float = 12.0
     row_height_mm: float = 8.4                            # subsection_box_height_mm 와 일관
+    # 한/글 표 default 셀당 inflate (mm). 진단으로 확정: 한/글이 우리 ColWidth
+    # 와 별개로 셀당 +3.67mm (좌+우 default cell padding ≈ 1.8mm × 2) 를 시각
+    # 폭에 추가. set_cell_margin_zero 호출은 텍스트 정렬 여백만 변경하고 시각
+    # 셀 폭에는 영향 없음. 따라서 make_table 에 보낼 때 각 셀에서 본 값을
+    # 미리 빼서 시각 폭이 의도와 일치하게 함. (한/글 버전별 미세 차이 가능 —
+    # 사용자가 시각 확인 후 조정.)
+    cell_inflation_mm: float = 3.67
+    # 추가 안전 여유 (mm) — 외곽선 굵기 등 미세 보정용. 기본 0.
+    width_safety_mm: float = 0.0
 
 
 @dataclass
