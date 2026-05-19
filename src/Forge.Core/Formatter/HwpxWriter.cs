@@ -18,7 +18,11 @@ namespace Forge.Core.Formatter;
 
 public enum HwpxWriteMode { New, Cursor }
 
-public sealed class NoSelectionException(string message) : Exception(message);
+public sealed class NoSelectionException : Exception
+{
+    public NoSelectionException(string message) : base(message) { }
+    public NoSelectionException(string message, Exception inner) : base(message, inner) { }
+}
 
 public static class HwpxWriter
 {
@@ -96,11 +100,35 @@ public static class HwpxWriter
         log($"[STAGE 1] 본문 {doc.Nodes.Count} 노드 dispatcher 시작");
         DispatchNodes(hwp, doc.Nodes, spec, log, initialPrevEmitted: metadataEmitted);
 
-        // ─── STAGE 2 후처리 (new 모드만, W3 에서 활성화) ───
+        // ─── STAGE 2 후처리 (new 모드만) ───
+        // 순서: 들여쓰기 → 자간 → 들여쓰기 (3단계). hotkey Q '자동 정렬' 동일 패턴.
+        // 검증 (2026-05-06): 인덴트 0 상태에서 자간 → 인덴트 시 wrap 옆 밀려 자간
+        // 보정 무효화. 인덴트 → 자간 만 시 자간 후 drift 로 인덴트 어긋남.
+        // 1차 인덴트로 wrap 기준 고정 → 자간 → 2차 인덴트 drift 보정.
+        // cursor 모드는 skip — 기존 문서 뒤 추가 시나리오 보호.
         if (mode == HwpxWriteMode.New)
         {
-            if (applyIndentAlign || applyKerning)
-                log("[STAGE 2] (보류) 들여쓰기 정렬·자간조정 — W3 에서 활성화 예정");
+            // HwpxWriter.LogFn 과 Linter.LogFn 이 이름 충돌 — 람다로 brige.
+            Linter.LogFn linterLog = msg => log("  " + msg);
+
+            if (applyIndentAlign)
+            {
+                log("[STAGE 2] (1/3) 들여쓰기 정렬 — wrap 기준 확정");
+                try { Linter.IndentAlign.AlignLeftIndent(hwp, linterLog); }
+                catch (Exception e) { log($"  ⚠ 1차 들여쓰기 정렬 중단: {e.Message}"); }
+            }
+            if (applyKerning)
+            {
+                log("[STAGE 2] (2/3) 자간조정 — 어절 잘림 방지 (줄당 ±15회)");
+                try { Linter.Kerning.AdjustKerningToAvoidWordBreak(hwp, linterLog); }
+                catch (Exception e) { log($"  ⚠ 자간조정 중단: {e.Message}"); }
+            }
+            if (applyIndentAlign)
+            {
+                log("[STAGE 2] (3/3) 들여쓰기 재정렬 — 자간 drift 보정");
+                try { Linter.IndentAlign.AlignLeftIndent(hwp, linterLog); }
+                catch (Exception e) { log($"  ⚠ 2차 들여쓰기 정렬 중단: {e.Message}"); }
+            }
         }
 
         // ─── 모드별 저장 ───
@@ -279,13 +307,75 @@ public static class HwpxWriter
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // 선택 영역 변환 (W3 — linter 와 같이 포팅)
+    // 선택 영역 변환 — 한/글 활성 문서의 selection 텍스트 → md 파싱 → 그 자리 변환
     // ────────────────────────────────────────────────────────────────────
 
-    public static int ConvertSelectionToHwpx(dynamic hwp, ReportSpec? spec = null, LogFn? log = null) =>
-        throw new NotImplementedException(
-            "W3 에서 linter (selection_range) 와 함께 포팅 예정. " +
-            "현재는 GenerateHwpxViaCom(mode=New) 로 새 hwpx 변환만 지원.");
+    /// <summary>
+    /// 한/글 활성 문서의 선택 영역을 plain text 로 추출 → md 파싱 →
+    /// 선택 영역을 변환 결과로 대체.
+    ///
+    /// Python convert_selection_to_hwpx 1:1 포팅. 동작:
+    ///   1. selection_range() 검사 (단순 캐럿이면 NoSelectionException)
+    ///   2. GetTextFile("UNICODE", "saveblock") 으로 선택 텍스트 추출 (서식 무시)
+    ///   3. Run("Delete") 로 영역 제거 — caret 이 그 자리에 남음
+    ///   4. parse_markdown → GenerateHwpxViaCom(mode=Cursor) — 그 위치에 emit
+    ///
+    /// tool2 `마크다운()` (한컴라이브러리_decompiled.py L12102+) 와 동일 패턴.
+    /// </summary>
+    public static int ConvertSelectionToHwpx(dynamic hwp, ReportSpec? spec = null, LogFn? log = null)
+    {
+        spec ??= ReportSpec.Report1;
+        log ??= _ => { };
+
+        var sel = Linter.Range.SelectionRange(hwp);
+        log($"[md-convert] selection_range = {(sel.HasValue ? sel.Value.ToString() : "null")}");
+
+        // 1) GetTextFile("UNICODE", "saveblock") — 선택 블록만 export
+        //    "UNICODE" — 서식 무시, 모든 문자 무손실.
+        //    "saveblock" — selection 블록 한정.
+        //    한계: 개체 선택 상태 (표/이미지/도형) 에서는 동작 안 함.
+        string raw;
+        try
+        {
+            raw = (string)hwp.GetTextFile("UNICODE", "saveblock") ?? "";
+        }
+        catch (Exception e)
+        {
+            log($"[md-convert] GetTextFile 호출 실패: {e.Message}");
+            throw new NoSelectionException(
+                "선택 영역 텍스트 추출 실패 — 한/글 selection 상태를 확인해 주세요.", e);
+        }
+
+        var text = raw.TrimEnd();
+        log($"[md-convert] GetTextFile 결과 = {text.Length}자");
+
+        if (text.Length == 0)
+            throw new NoSelectionException(
+                "선택 영역이 인식되지 않거나 텍스트가 비어있습니다.\n" +
+                "• 한/글에서 변환할 본문을 마우스 드래그로 영역 지정 후 단축키를 눌러주세요.\n" +
+                "• 단순 캐럿 위치만으로는 동작하지 않습니다.\n" +
+                "• 표·이미지 등 개체 선택 상태에서도 동작하지 않습니다.");
+
+        if (sel is null)
+            log("[md-convert] ⚠ GetSelectedPos 거짓음성 — GetTextFile 결과로 진행");
+
+        // 2) 영역 삭제 — caret 이 그 자리에 남음
+        log("[md-convert] 선택 영역 삭제 (Run='Delete')");
+        hwp.Run("Delete");
+
+        // 3) 파싱 + cursor 모드 변환
+        var doc = Parser.Parse(text);
+        log($"[md-convert] parse: 본문 노드 {doc.Nodes.Count}개");
+        GenerateHwpxViaCom(
+            hwp, doc,
+            outPath: "",
+            spec: spec,
+            log: log,
+            mode: HwpxWriteMode.Cursor);
+
+        log($"[md-convert] ✔ 변환 완료 ({doc.Nodes.Count} 노드)");
+        return doc.Nodes.Count;
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────
