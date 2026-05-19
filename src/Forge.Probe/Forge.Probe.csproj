@@ -14,4 +14,17 @@
     <ProjectReference Include="..\Forge.Core\Forge.Core.csproj" />
   </ItemGroup>
 
+  <!--
+    Forge.Core 가 reference 하는 Interop.HwpObject(PIA) 가 transitive 로 deps.json
+    에 안 흘러감 — SDK-style 의 ProjectReference 의 알려진 한계. Probe 에서 직접
+    re-reference 해서 runtime assembly resolve 보장.
+  -->
+  <ItemGroup>
+    <Reference Include="Interop.HwpObject">
+      <HintPath>..\Forge.Core\Interop\Interop.HwpObject.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
 </Project>

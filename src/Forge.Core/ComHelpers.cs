@@ -35,7 +35,20 @@ public static class ComHelpers
         var s = act.CreateSet();
         act.GetDefault(s);
         foreach (var (k, v) in items)
-            s.SetItem(k, v);
+        {
+            try
+            {
+                s.SetItem(k, v);
+            }
+            catch (Exception ex)
+            {
+                // 진단 — 어떤 key/타입에서 한컴이 거부했는지 메시지에 노출.
+                throw new InvalidOperationException(
+                    $"SetItem 실패: action={action} key={k} " +
+                    $"valueType={v?.GetType().FullName ?? "null"} value={v}",
+                    ex);
+            }
+        }
         act.Execute(s);
     }
 

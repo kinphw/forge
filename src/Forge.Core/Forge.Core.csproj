@@ -2,7 +2,29 @@
 
   <!--
     Forge.Core — formatter / linter / renderers / hwp_session 등 도메인 로직.
-    GUI 무의존. dynamic 으로 한/글 COM 접근.
+    GUI 무의존. 한/글 COM 접근은 dynamic + Interop.HwpObject(PIA) 혼용.
+
+    Interop.HwpObject.dll: tlbimp 로 한컴 HwpObject.tlb 에서 생성한 PIA.
+    Sub-COM (IDHwpParameterArray.SetItem 등) 의 typelib early-bound dispatch 가
+    dynamic 으로는 안 풀려서 (한컴 IDispatch.GetIDsOfNames 가 일부 멤버 미노출)
+    PIA 의 typed 인터페이스로 cast 해 호출.
+
+    PIA 재생성:
+      "C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools\TlbImp.exe" `
+        "C:\Program Files (x86)\Hnc\Office 2018\HOffice100\bin\HwpObject.tlb" `
+        /out:src\Forge.Core\Interop\Interop.HwpObject.dll /namespace:Forge.Interop.HwpObject
   -->
+
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" Version="17.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Interop.HwpObject">
+      <HintPath>Interop\Interop.HwpObject.dll</HintPath>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
 
 </Project>
