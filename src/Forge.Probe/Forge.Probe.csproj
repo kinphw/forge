@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Forge.Probe — W1 PoC + 영구 진단 도구.
+    Python 의 forge/diagnose.py 등가물. 콘솔에서 COM attach·룰 호출
+    개별 시연 가능. 운용 시점에도 살려두면 사고 시 1차 진단에 유용.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Forge.Core\Forge.Core.csproj" />
+  </ItemGroup>
+
+</Project>

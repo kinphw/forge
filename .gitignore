@@ -23,7 +23,12 @@ credentials.*
 .DS_Store
 Thumbs.db
 .idea/
-.vscode/
+# .vscode/ 는 통째 무시하지만 — F5 디버그 / 빌드 태스크 / 권장 확장 4종은
+# 팀(=다른 개발 PC) 과 공유. 개인 설정은 settings.json 에 두면 무시됨.
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
 *.swp
 
 # ─────────────────────────────────────────────────────────────────────
@@ -54,6 +59,21 @@ htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# ─────────────────────────────────────────────────────────────────────
+# .NET (C# 포팅 — src/, tests/Forge.*)
+# ─────────────────────────────────────────────────────────────────────
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+*.cache
+.vs/
+publish/
+*.binlog
+# 솔루션 파일은 커밋 유지 — 무시 안 함
+# !Forge.sln
 
 # ─────────────────────────────────────────────────────────────────────
 # Node.js (dev-support MCP 전용)

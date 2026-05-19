@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Forge.Core — formatter / linter / renderers / hwp_session 등 도메인 로직.
+    GUI 무의존. dynamic 으로 한/글 COM 접근.
+  -->
+
+</Project>

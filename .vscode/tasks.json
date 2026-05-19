@@ -1,0 +1,38 @@
+{
+  // VSCode 빌드/실행 태스크.
+  // Ctrl+Shift+B 로 기본 빌드 태스크 실행.
+  // launch.json 의 preLaunchTask 에서도 참조됨.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "${workspaceFolder}/Forge.sln", "-v", "minimal"],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "build:Probe",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "${workspaceFolder}/src/Forge.Probe/Forge.Probe.csproj", "-v", "minimal"],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "build:UI",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "${workspaceFolder}/src/Forge.UI/Forge.UI.csproj", "-v", "minimal"],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "test",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "${workspaceFolder}/Forge.sln", "--nologo"],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "test", "isDefault": true }
+    }
+  ]
+}

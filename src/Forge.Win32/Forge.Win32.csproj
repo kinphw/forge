@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Forge.Win32 — Win32 P/Invoke 격리 (RegisterHotKey 메시지 펌프 등).
+    테스트 가능성을 위해 Core 와 UI 양쪽에서 분리.
+  -->
+
+</Project>
