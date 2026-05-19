@@ -1,17 +1,20 @@
-// 탭 ① 실시간 작업 — 활성 한/글 문서에 룰 1개씩 적용.
-// Python 원본 forge/ui/tabs/realtime_tab.py 의 핵심 포팅 (1321줄 중 단축키+룰 핵심).
+// 탭 ① 실시간 작업 — Python realtime_tab.py 충실 포팅.
 //
 // 구조:
-//   - 단축키 letter Entry 9개 (Q/W/A/S/F/G/D/Z/X) + 사용자 변경 시 GlobalHotkeyManager.Replace
-//   - 폰트 4쌍 (font_name + size) Entry — 룰 호출 시 SSOT
-//   - 룰 버튼 — 단축키 없이도 직접 실행 가능
+//   상단 meta bar — 🧹 로그 비우기 + 개별기능 표시 체크박스
+//   3-컬럼 grid [버튼 | 폰트cluster | 단축키]:
+//     그룹 1 (정렬): 자동 정렬 (Q) / 어절 끌어올림 (W)
+//     ───────────────────────────────────────
+//     그룹 2 (폰트, A/S/D/F/G 키보드 순):
+//       본문 (A) / 주석 (S) / 빈줄 크기 (D) / 헤드라인 (F) / 울릉도 (G)
+//     ───────────────────────────────────────
+//     그룹 3 (기타): 자간 0 (Z) / 선택→md 변환 (X)
 //
-// 핸들러는 한/글 attach 필요 → MainForm.EnsureHwp() 통해 lazy.
+// 영속화: 폰트·크기·blank·hotkey letter 변경 → UserSettings JSON 자동 저장 (debounce).
 
 using Forge.Core;
 using Forge.Core.Formatter;
 using Forge.Core.Renderers;
-using Forge.Core.Templates;
 using Forge.Win32;
 
 namespace Forge.UI.Tabs;
@@ -20,245 +23,433 @@ public sealed class RealtimeTab : TabPage
 {
     private readonly AppState _state;
     private readonly Action _updateStatus;
+    private readonly ToolTip _tooltip = new()
+    {
+        AutoPopDelay = 12000,
+        InitialDelay = 400,
+        ReshowDelay = 100,
+        ShowAlways = true,
+    };
 
-    // 단축키 letter Entry 9개 (Actions.All 순서)
-    private readonly TextBox[] _hkLetters = new TextBox[Actions.All.Count];
-
-    // 폰트 입력 칸 (Python var_font1~4, var_size1~4 등가)
+    // ─ 사용자 입력 상태 (Python var_font1~4, var_size1~4 등가) ───────
     public string Font1Name { get; private set; } = "휴먼명조";
     public double Font1Size { get; private set; } = 15.0;
     public string Font2Name { get; private set; } = "맑은 고딕";
     public double Font2Size { get; private set; } = 12.0;
     public string Font3Name { get; private set; } = "HY헤드라인M";
-    public double Font3Size { get; private set; } = 16.0;
+    public double Font3Size { get; private set; } = 15.0;
     public string Font4Name { get; private set; } = "HY울릉도M";
     public double Font4Size { get; private set; } = 15.0;
     public double BlankSize { get; private set; } = 8.0;
 
-    private TextBox _font1Name = null!, _font2Name = null!, _font3Name = null!, _font4Name = null!;
-    private TextBox _font1Size = null!, _font2Size = null!, _font3Size = null!, _font4Size = null!;
-    private TextBox _blankSize = null!;
-    private TextBox _logOutput = null!;
+    private CheckBox _showIndividual = null!;
+    private readonly TextBox[] _hkLetters = new TextBox[Actions.All.Count];
+    private readonly Label[] _hkStatusLbls = new Label[Actions.All.Count];
 
+    private TextBox _logOutput = null!;
     private GlobalHotkeyManager? _hotkeys;
+    private System.Windows.Forms.Timer? _persistTimer;
+    private readonly Dictionary<string, object?> _pendingPersist = new();
 
     public RealtimeTab(AppState state, Action updateStatus)
     {
         _state = state;
         _updateStatus = updateStatus;
+        BackColor = ForgeTheme.Background;
+        Padding = ForgeTheme.PanelPadding;
+        LoadFromSettings();
         BuildUI();
-        // hotkey 등록은 MainForm 의 OnShown 에서 호출 (handle 만들어진 뒤)
     }
 
     private MainForm? Main => FindForm() as MainForm;
 
     // ──────────────────────────────────────────────────────────────────
-    // UI
+    // 설정 영속화
+    // ──────────────────────────────────────────────────────────────────
+
+    private void LoadFromSettings()
+    {
+        var rt = UserSettings.GetSection("realtime");
+        Font1Name = GetStr(rt, "font1", Font1Name);
+        Font2Name = GetStr(rt, "font2", Font2Name);
+        Font3Name = GetStr(rt, "font3", Font3Name);
+        Font4Name = GetStr(rt, "font4", Font4Name);
+        Font1Size = GetDouble(rt, "size1", Font1Size);
+        Font2Size = GetDouble(rt, "size2", Font2Size);
+        Font3Size = GetDouble(rt, "size3", Font3Size);
+        Font4Size = GetDouble(rt, "size4", Font4Size);
+        BlankSize = GetDouble(rt, "blank_size", BlankSize);
+    }
+
+    private static string GetStr(Dictionary<string, System.Text.Json.JsonElement> d, string key, string fallback) =>
+        d.TryGetValue(key, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String
+            ? v.GetString() ?? fallback
+            : fallback;
+
+    private static double GetDouble(Dictionary<string, System.Text.Json.JsonElement> d, string key, double fallback)
+    {
+        if (!d.TryGetValue(key, out var v)) return fallback;
+        if (v.ValueKind == System.Text.Json.JsonValueKind.Number) return v.GetDouble();
+        if (v.ValueKind == System.Text.Json.JsonValueKind.String && double.TryParse(v.GetString(), out var p)) return p;
+        return fallback;
+    }
+
+    private void QueuePersist(string key, object? value)
+    {
+        _pendingPersist[key] = value;
+        _persistTimer ??= new System.Windows.Forms.Timer { Interval = 500 };
+        _persistTimer.Tick -= OnPersistFlush;
+        _persistTimer.Tick += OnPersistFlush;
+        _persistTimer.Stop();
+        _persistTimer.Start();
+    }
+
+    private void OnPersistFlush(object? sender, EventArgs e)
+    {
+        _persistTimer?.Stop();
+        if (_pendingPersist.Count == 0) return;
+        UserSettings.UpdateSection("realtime", new Dictionary<string, object?>(_pendingPersist));
+        _pendingPersist.Clear();
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // UI 구축
     // ──────────────────────────────────────────────────────────────────
 
     private void BuildUI()
     {
-        var split = new SplitContainer
+        // TableLayoutPanel 1행 2열 — 좌:우 65:35 자동 비율 (SplitContainer 의 SplitterDistance
+        // 초기화 타이밍 이슈 회피).
+        var root = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
-            Orientation = Orientation.Vertical,
-            SplitterDistance = 580,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = ForgeTheme.Background,
         };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65));
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
+        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        Controls.Add(root);
 
-        // 좌측 패널 — 단축키 + 폰트 + 룰 버튼
-        var leftPanel = new TableLayoutPanel
+        // ─ 좌측 = 컨트롤 (스크롤) ─
+        // FlowLayoutPanel + AutoSize 가 자식 폭을 부모에 안 맞춰 GroupBox 가 좁아지는 issue 회피.
+        // Dock=Top 패턴 — 자식들이 부모(Panel) 폭 자동 채움. 추가 순서는 bottom-up.
+        var leftScroll = new Panel
         {
             Dock = DockStyle.Fill,
-            ColumnCount = 1,
             AutoScroll = true,
-            Padding = new Padding(8),
+            BackColor = ForgeTheme.Background,
+            Padding = new Padding(0, 0, ForgeTheme.Pad, 0),
         };
-        leftPanel.Controls.Add(BuildHotkeySection());
-        leftPanel.Controls.Add(BuildFontSection());
-        leftPanel.Controls.Add(BuildRuleButtonSection());
+        root.Controls.Add(leftScroll, 0, 0);
 
-        // 우측 — 로그
+        // Dock=Top stack — 마지막 추가가 맨 위로 (역순 추가)
+        var mainGroup = BuildMainGroup();
+        mainGroup.Dock = DockStyle.Top;
+
+        var metaBar = BuildMetaBar();
+        metaBar.Dock = DockStyle.Top;
+
+        var desc = ForgeTheme.SectionDesc(
+            "활성 한/글 문서에 룰을 1개씩 적용. 결과는 우측 로그에 누적.\n" +
+            "단축키 letter 는 자유 변경 (Ctrl+Shift+ 조합 유지).");
+        desc.Dock = DockStyle.Top;
+
+        var title = ForgeTheme.SectionTitle("개별 작업 — 실시간 모드");
+        title.Dock = DockStyle.Top;
+
+        // 추가 순서 = 아래에서 위 (Dock=Top stacks 의 z-order)
+        leftScroll.Controls.Add(mainGroup);
+        leftScroll.Controls.Add(metaBar);
+        leftScroll.Controls.Add(desc);
+        leftScroll.Controls.Add(title);
+
+        // ─ 우측 = 로그 ─
         _logOutput = new TextBox
         {
             Dock = DockStyle.Fill,
             Multiline = true,
             ReadOnly = true,
             ScrollBars = ScrollBars.Vertical,
-            Font = new System.Drawing.Font("Consolas", 9),
-            BackColor = System.Drawing.Color.FromArgb(245, 245, 245),
+            BackColor = ForgeTheme.LogBg,
+            ForeColor = ForgeTheme.LogText,
+            Font = ForgeTheme.Mono(),
+            BorderStyle = BorderStyle.FixedSingle,
         };
-
-        split.Panel1.Controls.Add(leftPanel);
-        split.Panel2.Controls.Add(_logOutput);
-        Controls.Add(split);
+        root.Controls.Add(_logOutput, 1, 0);
     }
 
-    private GroupBox BuildHotkeySection()
+    private Panel BuildMetaBar()
     {
+        var bar = new Panel
+        {
+            AutoSize = false,
+            Height = 44,
+            Margin = new Padding(0, 0, 0, ForgeTheme.Pad),
+        };
+        var clearBtn = new Button { Text = "🧹 로그 비우기" };
+        ForgeTheme.StyleFlatButton(clearBtn);
+        clearBtn.Click += (_, _) => _logOutput.Clear();
+        clearBtn.Location = new Point(0, 4);
+        bar.Controls.Add(clearBtn);
+        _tooltip.SetToolTip(clearBtn, "로그 영역의 모든 내용 지우기");
+
+        var rt = UserSettings.GetSection("realtime");
+        var showInitial = rt.TryGetValue("show_individual", out var v) &&
+                          v.ValueKind == System.Text.Json.JsonValueKind.True;
+        _showIndividual = new CheckBox
+        {
+            Text = "개별기능 표시",
+            AutoSize = true,
+            Font = ForgeTheme.Body(),
+            Checked = showInitial,
+            Location = new Point(160, 8),
+        };
+        _showIndividual.CheckedChanged += (_, _) =>
+        {
+            QueuePersist("show_individual", _showIndividual.Checked);
+            // TODO: 행 11·12 (들여쓰기 정렬·자간조정 개별 버튼) 표시 토글
+        };
+        bar.Controls.Add(_showIndividual);
+
+        bar.Width = 380;
+        bar.Height = 36;
+        return bar;
+    }
+
+    private GroupBox BuildMainGroup()
+    {
+        // Dock=Top + AutoSize=false + Height 명시 패턴
+        // (AutoSize 가 부모(leftScroll) 폭에 자동 맞춰주지 못해 column 줄어드는 사고 회피)
         var box = new GroupBox
         {
-            Text = "단축키 (Ctrl+Shift+<key>) — letter 변경 가능",
-            Dock = DockStyle.Top,
-            Height = 280,
-            Padding = new Padding(8),
+            Text = "🧪 현재 캐럿 또는 선택영역에 적용",
+            AutoSize = false,
+            Height = 460,  // 11 rows × ~36 + separator × 2 + header
+            MinimumSize = new Size(640, 0),  // column 합 + 여유 — 좁아지면 horizontal scroll
+            Margin = new Padding(0, 0, 0, ForgeTheme.Pad),
         };
+        ForgeTheme.StyleGroup(box);
+
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Fill,
             ColumnCount = 3,
-            RowCount = Actions.All.Count,
+            Padding = new Padding(0, 4, 0, 4),
         };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 60));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230));  // 버튼
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 290));  // 폰트 cluster
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));   // 단축키 (나머지)
 
+        // 행 0: 자동 정렬 (Q)
+        AddRow(grid, 0, "자동 정렬 (들·자·들)", null, null,
+            hkIndex: 0,
+            tooltip: "문서기호 이후 들여쓰기 조정 + 어절 잘리지 않게 자간조정 동시 실행");
+
+        // 행 1: 어절 끌어올림 (W)
+        AddRow(grid, 1, "어절 1개 끌어올림 (자간)", null, null,
+            hkIndex: 1,
+            tooltip: "1개 어절이 다음 줄에 튀어나온 경우 자간을 좁혀서 위로 올리기");
+
+        // 행 2: separator
+        AddSeparator(grid, 2);
+
+        // 행 3: 본문 폰트 (A)
+        AddRow(grid, 3, "폰트·크기 (본문)",
+            BuildFontCluster(Font1Name, Font1Size, (n, s) => { Font1Name = n; Font1Size = s; QueuePersist("font1", n); QueuePersist("size1", s); }),
+            null, hkIndex: 2,
+            tooltip: "선택영역 폰트·크기 (본문) — 우측 입력값 적용");
+
+        // 행 4: 주석 폰트 (S)
+        AddRow(grid, 4, "폰트·크기 (주석)",
+            BuildFontCluster(Font2Name, Font2Size, (n, s) => { Font2Name = n; Font2Size = s; QueuePersist("font2", n); QueuePersist("size2", s); }),
+            null, hkIndex: 3,
+            tooltip: "선택영역 폰트·크기 (주석) — 우측 입력값 적용");
+
+        // 행 5: 빈줄용 크기 (D, A/S/D/F/G 순)
+        AddRow(grid, 5, "현재 문단 → 글자크기",
+            BuildSizeOnlyCluster(BlankSize, s => { BlankSize = s; QueuePersist("blank_size", s); }),
+            null, hkIndex: 6,
+            tooltip: "빈줄 용 글자크기 설정 (자간 꼬임 회피)");
+
+        // 행 6: 헤드라인 폰트 (F)
+        AddRow(grid, 6, "폰트·크기 (헤드라인)",
+            BuildFontCluster(Font3Name, Font3Size, (n, s) => { Font3Name = n; Font3Size = s; QueuePersist("font3", n); QueuePersist("size3", s); }),
+            null, hkIndex: 4,
+            tooltip: "선택영역 폰트·크기 (헤드라인) — 우측 입력값 적용");
+
+        // 행 7: 울릉도 폰트 (G)
+        AddRow(grid, 7, "폰트·크기 (울릉도)",
+            BuildFontCluster(Font4Name, Font4Size, (n, s) => { Font4Name = n; Font4Size = s; QueuePersist("font4", n); QueuePersist("size4", s); }),
+            null, hkIndex: 5,
+            tooltip: "선택영역 폰트·크기 (울릉도) — 우측 입력값 적용");
+
+        // 행 8: separator
+        AddSeparator(grid, 8);
+
+        // 행 9: 자간 0 (Z)
+        AddRow(grid, 9, "자간 0 초기화", null, null, hkIndex: 7,
+            tooltip: "선택영역 자간 0% 으로 reset");
+
+        // 행 10: 선택→md (X)
+        AddRow(grid, 10, "선택영역 → 마크다운 변환", null, null, hkIndex: 8,
+            tooltip: "선택 영역의 plain 텍스트를 md 로 해석해 그 자리 변환");
+
+        box.Controls.Add(grid);
+        return box;
+    }
+
+    private void AddRow(TableLayoutPanel grid, int row, string buttonText, Control? center, Control? right, int hkIndex, string tooltip)
+    {
+        var act = Actions.All[hkIndex];
+        var btn = new Button { Text = buttonText, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = new Size(210, 32), TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 8, 0) };
+        ForgeTheme.StyleFlatButton(btn);
+        btn.Click += (_, _) => SafeInvoke(act);
+        _tooltip.SetToolTip(btn, tooltip);
+        grid.Controls.Add(btn, 0, row);
+
+        if (center is not null)
+            grid.Controls.Add(center, 1, row);
+        else
+            grid.Controls.Add(new Label { AutoSize = true, Text = "" }, 1, row);
+
+        grid.Controls.Add(BuildHotkeyWidget(hkIndex), 2, row);
+    }
+
+    private void AddSeparator(TableLayoutPanel grid, int row)
+    {
+        var sep = new Panel { Height = 1, BackColor = ForgeTheme.Border, Dock = DockStyle.Fill, Margin = new Padding(0, 6, 0, 6) };
+        grid.Controls.Add(sep, 0, row);
+        grid.SetColumnSpan(sep, 3);
+    }
+
+    /// <summary>폰트 cluster — [ComboBox: 폰트명] [TextBox: pt]</summary>
+    private Control BuildFontCluster(string initName, double initSize, Action<string, double> onChange)
+    {
+        var p = new TableLayoutPanel
+        {
+            ColumnCount = 2,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Margin = new Padding(0),
+        };
+        p.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 200));
+        p.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 60));
+
+        var combo = new ComboBox
+        {
+            Text = initName,
+            DropDownStyle = ComboBoxStyle.DropDown,
+            Width = 196,
+            Font = ForgeTheme.Body(),
+        };
+        // 설치된 폰트 자동 채우기 (top 50)
+        try
+        {
+            using var fc = new System.Drawing.Text.InstalledFontCollection();
+            foreach (var f in fc.Families.Take(120)) combo.Items.Add(f.Name);
+        }
+        catch { /* skip */ }
+
+        var size = new TextBox { Text = initSize.ToString("0.#"), Width = 56, Font = ForgeTheme.Body() };
+        ForgeTheme.StyleInput(size);
+
+        void Push()
+        {
+            if (double.TryParse(size.Text, out var s))
+                onChange(combo.Text, s);
+        }
+        combo.TextChanged += (_, _) => Push();
+        size.TextChanged += (_, _) => Push();
+
+        p.Controls.Add(combo, 0, 0);
+        p.Controls.Add(size, 1, 0);
+        return p;
+    }
+
+    /// <summary>크기-only cluster — [TextBox: pt] (행 5 빈줄용).</summary>
+    private Control BuildSizeOnlyCluster(double initSize, Action<double> onChange)
+    {
+        var p = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(0) };
+        var size = new TextBox { Text = initSize.ToString("0.#"), Width = 60, Font = ForgeTheme.Body() };
+        ForgeTheme.StyleInput(size);
+        size.TextChanged += (_, _) => { if (double.TryParse(size.Text, out var s)) onChange(s); };
+        var pt = new Label { Text = "pt", AutoSize = true, ForeColor = ForgeTheme.TextMuted, Margin = new Padding(4, 6, 0, 0), Font = ForgeTheme.Small() };
+        p.Controls.Add(size);
+        p.Controls.Add(pt);
+        return p;
+    }
+
+    /// <summary>단축키 widget — [TextBox: letter] [Label: ✓/✗/—].</summary>
+    private Control BuildHotkeyWidget(int hkIndex)
+    {
+        var p = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(0) };
+        var act = Actions.All[hkIndex];
         var saved = UserSettings.GetKeymap();
-        for (int i = 0; i < Actions.All.Count; i++)
+        var letter = saved.TryGetValue(act.Id, out var k) && k is not null ? k : act.DefaultKey;
+
+        var prefix = new Label
         {
-            var act = Actions.All[i];
-            var letter = saved.TryGetValue(act.Id, out var k) && k is not null ? k : act.DefaultKey;
-            var letterBox = new TextBox
-            {
-                Text = letter,
-                MaxLength = 1,
-                Width = 40,
-                TextAlign = HorizontalAlignment.Center,
-            };
-            int hkId = i + 1;
-            letterBox.Leave += (_, _) => OnHotkeyLetterChanged(hkId, letterBox);
-            _hkLetters[i] = letterBox;
-            grid.Controls.Add(letterBox, 0, i);
+            Text = "Ctrl+Shift+",
+            AutoSize = true,
+            ForeColor = ForgeTheme.TextMuted,
+            Font = ForgeTheme.Small(),
+            Margin = new Padding(0, 6, 4, 0),
+        };
+        var letterBox = new TextBox
+        {
+            Text = letter ?? "",
+            Width = 32,
+            MaxLength = 1,
+            TextAlign = HorizontalAlignment.Center,
+            Font = ForgeTheme.BodyBold(),
+        };
+        ForgeTheme.StyleInput(letterBox);
+        var status = new Label
+        {
+            Text = "—",
+            AutoSize = true,
+            ForeColor = ForgeTheme.TextMuted,
+            Font = ForgeTheme.Body(),
+            Margin = new Padding(6, 6, 0, 0),
+        };
 
-            var label = new Label { Text = act.Label, AutoSize = true, Anchor = AnchorStyles.Left };
-            grid.Controls.Add(label, 1, i);
+        letterBox.Leave += (_, _) => OnHotkeyLetterChanged(hkIndex + 1, letterBox, status, act);
+        _hkLetters[hkIndex] = letterBox;
+        _hkStatusLbls[hkIndex] = status;
 
-            var btn = new Button { Text = "▶ 실행", AutoSize = true };
-            btn.Click += (_, _) => SafeInvoke(act);
-            grid.Controls.Add(btn, 2, i);
-        }
-        box.Controls.Add(grid);
-        return box;
+        p.Controls.Add(prefix);
+        p.Controls.Add(letterBox);
+        p.Controls.Add(status);
+        return p;
     }
 
-    private GroupBox BuildFontSection()
-    {
-        var box = new GroupBox
-        {
-            Text = "폰트 입력 (룰 호출 시 SSOT)",
-            Dock = DockStyle.Top,
-            Height = 200,
-            Padding = new Padding(8),
-        };
-        var grid = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            ColumnCount = 4,
-            RowCount = 5,
-        };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 60));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
-
-        TextBox AddRow(int row, string label, string defaultName, double defaultSize)
-        {
-            grid.Controls.Add(new Label { Text = label, AutoSize = true, Anchor = AnchorStyles.Left }, 0, row);
-            var nameBox = new TextBox { Dock = DockStyle.Fill, Text = defaultName };
-            grid.Controls.Add(nameBox, 1, row);
-            grid.Controls.Add(new Label { Text = "크기", AutoSize = true, Anchor = AnchorStyles.Right }, 2, row);
-            var sizeBox = new TextBox { Dock = DockStyle.Fill, Text = defaultSize.ToString("0.#") };
-            grid.Controls.Add(sizeBox, 3, row);
-            // 변경 시 캐시 갱신
-            nameBox.TextChanged += (_, _) => SyncFontFields();
-            sizeBox.TextChanged += (_, _) => SyncFontFields();
-            return nameBox;
-        }
-
-        _font1Name = AddRow(0, "본문 (A)", Font1Name, Font1Size);
-        _font1Size = (TextBox)grid.GetControlFromPosition(3, 0)!;
-        _font2Name = AddRow(1, "주석 (S)", Font2Name, Font2Size);
-        _font2Size = (TextBox)grid.GetControlFromPosition(3, 1)!;
-        _font3Name = AddRow(2, "헤드라인 (F)", Font3Name, Font3Size);
-        _font3Size = (TextBox)grid.GetControlFromPosition(3, 2)!;
-        _font4Name = AddRow(3, "울릉도 (G)", Font4Name, Font4Size);
-        _font4Size = (TextBox)grid.GetControlFromPosition(3, 3)!;
-
-        // blank size
-        grid.Controls.Add(new Label { Text = "빈줄 크기 (D)", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 4);
-        _blankSize = new TextBox { Dock = DockStyle.Fill, Text = BlankSize.ToString("0.#") };
-        _blankSize.TextChanged += (_, _) => SyncFontFields();
-        grid.Controls.Add(_blankSize, 1, 4);
-
-        box.Controls.Add(grid);
-        return box;
-    }
-
-    private GroupBox BuildRuleButtonSection()
-    {
-        var box = new GroupBox
-        {
-            Text = "개별 룰 실행 (단축키 없이)",
-            Dock = DockStyle.Top,
-            Height = 80,
-            Padding = new Padding(8),
-        };
-        var flow = new FlowLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true,
-        };
-        foreach (var act in Actions.All)
-        {
-            var btn = new Button
-            {
-                Text = $"{act.Label}",
-                AutoSize = true,
-                Margin = new Padding(2),
-            };
-            btn.Click += (_, _) => SafeInvoke(act);
-            flow.Controls.Add(btn);
-        }
-        box.Controls.Add(flow);
-        return box;
-    }
-
-    private void SyncFontFields()
-    {
-        Font1Name = _font1Name.Text;
-        Font2Name = _font2Name.Text;
-        Font3Name = _font3Name.Text;
-        Font4Name = _font4Name.Text;
-        if (double.TryParse(_font1Size.Text, out var s1)) Font1Size = s1;
-        if (double.TryParse(_font2Size.Text, out var s2)) Font2Size = s2;
-        if (double.TryParse(_font3Size.Text, out var s3)) Font3Size = s3;
-        if (double.TryParse(_font4Size.Text, out var s4)) Font4Size = s4;
-        if (double.TryParse(_blankSize.Text, out var sb)) BlankSize = sb;
-    }
-
-    private void OnHotkeyLetterChanged(int hkId, TextBox letterBox)
+    private void OnHotkeyLetterChanged(int hkId, TextBox letterBox, Label status, ActionDef act)
     {
         var letter = letterBox.Text.Trim();
-        var act = Actions.ByHkId(hkId);
         if (letter.Length == 1 && (char.IsLetter(letter[0]) || char.IsDigit(letter[0])))
         {
             letterBox.Text = letter.ToUpperInvariant();
-            _hotkeys?.Replace(hkId, VirtualKey.Letter(letter[0]), $"Ctrl+Shift+{letter.ToUpperInvariant()}");
+            var ok = _hotkeys?.Replace(hkId, VirtualKey.Letter(letter[0]), $"Ctrl+Shift+{letter.ToUpperInvariant()}") ?? false;
             UserSettings.SetKeymapEntry(act.Id, letter);
-            Log($"  [hotkey] {act.Label} → Ctrl+Shift+{letter.ToUpperInvariant()}");
+            status.Text = ok ? "✓" : "✗";
+            status.ForeColor = ok ? ForgeTheme.Success : ForgeTheme.Error;
+            Log($"  [hotkey] {act.Label} → Ctrl+Shift+{letter.ToUpperInvariant()} {(ok ? "OK" : "충돌")}");
         }
         else
         {
-            // 비활성화 — letterBox 비우면 hotkey 등록 안 함
             letterBox.Text = "";
             _hotkeys?.Replace(hkId, null, $"{act.Label} (비활성)");
             UserSettings.SetKeymapEntry(act.Id, null);
+            status.Text = "—";
+            status.ForeColor = ForgeTheme.TextMuted;
             Log($"  [hotkey] {act.Label} 비활성화");
         }
     }
 
     // ──────────────────────────────────────────────────────────────────
-    // GlobalHotkeyManager 시작 — MainForm.OnShown 시점에 호출
+    // GlobalHotkeyManager 시작 — MainForm.OnShown 시점
     // ──────────────────────────────────────────────────────────────────
 
     public void StartHotkeys()
@@ -279,14 +470,22 @@ public sealed class RealtimeTab : TabPage
                 vk is null ? $"{act.Label} (비활성)" : $"Ctrl+Shift+{letter}");
         }
         var results = _hotkeys.Start();
-        foreach (var (label, ok) in results)
-            Log(ok ? $"  [hotkey] ✔ {label}" : $"  [hotkey] ✘ {label} (다른 앱이 사용 중)");
+        for (int i = 0; i < results.Count; i++)
+        {
+            var (label, ok) = results[i];
+            var status = _hkStatusLbls[i];
+            if (status is not null)
+            {
+                status.Text = ok ? "✓" : (string.IsNullOrEmpty(_hkLetters[i].Text) ? "—" : "✗");
+                status.ForeColor = ok ? ForgeTheme.Success : (string.IsNullOrEmpty(_hkLetters[i].Text) ? ForgeTheme.TextMuted : ForgeTheme.Error);
+            }
+        }
     }
 
     public void StopHotkeys() => _hotkeys?.Dispose();
 
     // ──────────────────────────────────────────────────────────────────
-    // 핸들러 (Actions 가 호출)
+    // 핸들러 (Actions 호출)
     // ──────────────────────────────────────────────────────────────────
 
     private void SafeInvoke(ActionDef act)
@@ -294,7 +493,7 @@ public sealed class RealtimeTab : TabPage
         if (Main is null) return;
         if (!Main.EnsureHwp(allowSpawn: false))
         {
-            Log($"[{act.Label}] 한/글 attach 실패");
+            Log($"[{act.Label}] 한/글 attach 실패 — 한/글 먼저 실행해 주세요.");
             return;
         }
         try
@@ -328,14 +527,12 @@ public sealed class RealtimeTab : TabPage
     public void RunKerningReset()
     {
         if (_state.Hwp is null) return;
-        // selection 영역의 자간 0 reset
         Primitives.ResetKerningZero(_state.Hwp.Hwp);
     }
 
     public void RunParagraphSize8()
     {
         if (_state.Hwp is null) return;
-        // 현재 문단 글자크기 = BlankSize (빈줄 자간 꼬임 회피용 작은 크기)
         dynamic hwp = _state.Hwp.Hwp;
         hwp.HAction.Run("MoveParaBegin");
         hwp.HAction.Run("MoveSelParaEnd");
@@ -366,7 +563,7 @@ public sealed class RealtimeTab : TabPage
 
     private void Log(string msg)
     {
-        if (_logOutput.IsDisposed) return;
+        if (_logOutput is null || _logOutput.IsDisposed) return;
         if (InvokeRequired) { BeginInvoke((Action)(() => Log(msg))); return; }
         _logOutput.AppendText(msg + Environment.NewLine);
         _logOutput.SelectionStart = _logOutput.TextLength;

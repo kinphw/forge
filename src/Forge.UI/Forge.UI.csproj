@@ -2,11 +2,24 @@
 
   <!--
     Forge.UI — WinForms 데스크톱 앱 진입점. tkinter app.py 등가물.
+
+    단일 파일 publish (5MB 목표):
+      dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=false
+    또는 self-contained (배포 PC 에 .NET 8 런타임 없을 때):
+      dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -p:PublishTrimmed=false
+      ※ WinForms + dynamic COM 사용 — Trimmed=true 불가.
   -->
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>Forge</AssemblyName>
+    <Version>0.4.0</Version>
+    <FileVersion>0.4.0.0</FileVersion>
+    <AssemblyVersion>0.4.0.0</AssemblyVersion>
+    <Product>Forge</Product>
+    <Company>kinphw</Company>
+    <Copyright>Copyright (c) 2026 kinphw</Copyright>
   </PropertyGroup>
 
   <ItemGroup>

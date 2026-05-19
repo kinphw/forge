@@ -1,12 +1,10 @@
 // Forge 메인 윈도우.
-// Python 원본 forge/ui/app.py 의 ForgeApp 1:1 이식.
+// Python 원본 forge/ui/app.py 의 ForgeApp.
 //
 // 구조:
-//   - 상단 status bar (한/글 연결 상태 + About 버튼 + 한/글 선택)
-//   - 중앙 TabControl (3 탭: 실시간 / 양식 / 마크다운)
-//   - 하단 footer (버전 라벨)
-//
-// lazy 한/글 attach — 사용자 액션 시점 (Tab 의 변환·룰 버튼) 에 EnsureHwp().
+//   상단 status bar (한/글 연결 상태 + 한/글 선택 + About)
+//   중앙 TabControl (4 탭: ⓪ How to / ① 실시간 / ② 양식 / ③ 마크다운)
+//   하단 footer (버전 라벨)
 
 using Forge.Core;
 using Forge.UI.Tabs;
@@ -19,111 +17,133 @@ public partial class MainForm : Form
 
     private TabControl _tabs = null!;
     private Label _statusLabel = null!;
+    private Label _statusDot = null!;
     private Button _hwpPickButton = null!;
-    private Label _versionLabel = null!;
-
     private RealtimeTab _realtimeTab = null!;
 
     public MainForm()
     {
         Text = "Forge";
-        ClientSize = new Size(1200, 900);
-        MinimumSize = new Size(960, 700);
+        ClientSize = new Size(1240, 920);
+        MinimumSize = new Size(1000, 720);
         StartPosition = FormStartPosition.CenterScreen;
+        BackColor = ForgeTheme.Background;
+        Font = ForgeTheme.Body();
+        try { Icon = ForgeIcon.Build(); } catch { /* 아이콘 실패는 치명적 아님 */ }
 
         BuildUI();
         UpdateStatus();
 
-        // hotkey 등록은 윈도우 핸들 만들어진 후 — Shown 시점.
         Shown += (_, _) => _realtimeTab.StartHotkeys();
         FormClosing += (_, _) => _realtimeTab.StopHotkeys();
     }
 
     private void BuildUI()
     {
+        // 하단 footer 먼저 (Dock 순서)
+        var footer = new Panel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 26,
+            BackColor = ForgeTheme.PanelBg,
+            Padding = new Padding(ForgeTheme.PadLg, 4, ForgeTheme.PadLg, 4),
+        };
+        var versionLabel = new Label
+        {
+            AutoSize = true,
+            Dock = DockStyle.Right,
+            Text = $"Forge v{ForgeVersion.Version}  ·  github.com/kinphw/forge",
+            Font = ForgeTheme.Small(),
+            ForeColor = ForgeTheme.TextMuted,
+        };
+        footer.Controls.Add(versionLabel);
+        Controls.Add(footer);
+
         // 상단 status bar
         var statusBar = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 32,
-            BackColor = SystemColors.Control,
-            Padding = new Padding(8, 6, 8, 6),
+            Height = 44,
+            BackColor = ForgeTheme.PanelBg,
+            Padding = new Padding(ForgeTheme.PadLg, 8, ForgeTheme.PadLg, 8),
+        };
+        // 좌측: 상태 dot + 라벨
+        _statusDot = new Label
+        {
+            Text = "●",
+            AutoSize = true,
+            Font = new Font(ForgeTheme.Body().FontFamily, 12f),
+            ForeColor = ForgeTheme.TextMuted,
+            Location = new Point(ForgeTheme.PadLg, 12),
         };
         _statusLabel = new Label
         {
             AutoSize = true,
-            Location = new Point(8, 8),
-            Text = "한/글 미연결 (lazy attach)",
+            Font = ForgeTheme.Body(),
+            ForeColor = ForgeTheme.TextPrimary,
+            Location = new Point(ForgeTheme.PadLg + 18, 14),
+            Text = "한/글 미연결",
         };
-        _hwpPickButton = new Button
-        {
-            Text = "한/글 선택",
-            AutoSize = true,
-            Location = new Point(560, 4),
-        };
-        _hwpPickButton.Click += OnHwpPick;
-        var aboutButton = new Button
-        {
-            Text = "?",
-            Size = new Size(28, 24),
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
-        };
-        aboutButton.Click += OnAbout;
-        // 우측 정렬 — Resize 시 reposition
-        void RepositionStatus()
-        {
-            aboutButton.Location = new Point(statusBar.Width - 36, 4);
-        }
-        statusBar.Resize += (_, _) => RepositionStatus();
-        RepositionStatus();
+        statusBar.Controls.Add(_statusDot);
         statusBar.Controls.Add(_statusLabel);
+
+        // 우측: 한/글 선택 + About 버튼
+        _hwpPickButton = new Button { Text = "한/글 선택" };
+        ForgeTheme.StyleFlatButton(_hwpPickButton);
+        _hwpPickButton.Click += OnHwpPick;
+
+        var aboutButton = new Button { Text = "?", MinimumSize = new Size(32, 30) };
+        ForgeTheme.StyleFlatButton(aboutButton);
+        aboutButton.Click += OnAbout;
+
+        void RepositionRight()
+        {
+            aboutButton.Location = new Point(statusBar.Width - 32 - ForgeTheme.PadLg, 7);
+            _hwpPickButton.Location = new Point(aboutButton.Left - _hwpPickButton.Width - 8, 7);
+        }
+        statusBar.Resize += (_, _) => RepositionRight();
         statusBar.Controls.Add(_hwpPickButton);
         statusBar.Controls.Add(aboutButton);
+
         Controls.Add(statusBar);
 
-        // 하단 footer
-        var footer = new Panel
-        {
-            Dock = DockStyle.Bottom,
-            Height = 24,
-            BackColor = SystemColors.Control,
-            Padding = new Padding(8, 4, 8, 4),
-        };
-        _versionLabel = new Label
-        {
-            AutoSize = true,
-            Dock = DockStyle.Right,
-            Text = $"v{ForgeVersion.Version} — github.com/kinphw/forge",
-            ForeColor = Color.Gray,
-        };
-        footer.Controls.Add(_versionLabel);
-        Controls.Add(footer);
-
         // 중앙 탭
-        _tabs = new TabControl { Dock = DockStyle.Fill };
-        _realtimeTab = new RealtimeTab(State, UpdateStatus) { Text = "① 실시간 작업" };
-        _tabs.TabPages.Add(_realtimeTab);
-        _tabs.TabPages.Add(new TemplatesTab(State) { Text = "② 양식" });
-        _tabs.TabPages.Add(new MarkdownTab(State, UpdateStatus) { Text = "③ 마크다운 입력" });
-        Controls.Add(_tabs);
+        _tabs = new TabControl
+        {
+            Dock = DockStyle.Fill,
+            Font = ForgeTheme.Body(),
+            Padding = new Point(14, 6),
+        };
+        _realtimeTab = new RealtimeTab(State, UpdateStatus) { Text = "①  실시간 작업" };
 
-        // Controls.Add 순서: 마지막 추가가 z-order 최상위. 탭이 status 와 footer 사이를 채우게 됨.
-        // 정렬: Top(status) → Bottom(footer) → Fill(tabs)
+        _tabs.TabPages.Add(new HowToTab { Text = "⓪  How to?" });
+        _tabs.TabPages.Add(_realtimeTab);
+        _tabs.TabPages.Add(new TemplatesTab(State) { Text = "②  양식삽입" });
+        _tabs.TabPages.Add(new MarkdownTab(State, UpdateStatus) { Text = "③  마크다운 입력" });
+        _tabs.SelectedIndex = 1;  // 시작 탭 = 실시간
+
+        Controls.Add(_tabs);
         _tabs.BringToFront();
+
+        // 초기 위치 잡기
+        statusBar.PerformLayout();
+        OnResize(EventArgs.Empty);
     }
 
-    /// <summary>status bar 의 한/글 연결 상태 라벨 갱신.</summary>
+    /// <summary>한/글 연결 상태 라벨 갱신.</summary>
     public void UpdateStatus()
     {
         if (State.Hwp is null)
         {
-            _statusLabel.Text = "한/글 미연결 (lazy attach — 첫 변환 시 자동)";
-            _statusLabel.ForeColor = Color.DimGray;
+            _statusDot.ForeColor = ForgeTheme.TextMuted;
+            _statusLabel.Text = "한/글 미연결 (첫 변환 시 자동 attach)";
+            _statusLabel.ForeColor = ForgeTheme.TextMuted;
         }
         else
         {
-            _statusLabel.Text = $"한/글 연결: {State.Hwp.VersionName} #{State.Hwp.InstanceIndex}";
-            _statusLabel.ForeColor = Color.DarkGreen;
+            _statusDot.ForeColor = ForgeTheme.Success;
+            _statusLabel.Text = $"한/글 연결: {State.Hwp.VersionName}  #{State.Hwp.InstanceIndex}";
+            _statusLabel.ForeColor = ForgeTheme.TextPrimary;
         }
     }
 
@@ -148,13 +168,8 @@ public partial class MainForm : Form
 
     private void OnAbout(object? sender, EventArgs e)
     {
-        MessageBox.Show(this,
-            $"Forge — github.com/kinphw/forge\n" +
-            $"버전: {ForgeVersion.Version}\n" +
-            $"작성자: kinphw\n\n" +
-            $"한/글 보고서 자동 정형 도구.\n" +
-            $"개조식 markdown → .hwpx 변환 + 활성 문서 정형 룰.",
-            "Forge", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        using var about = new AboutForm();
+        about.ShowDialog(this);
     }
 
     /// <summary>다른 탭에서 한/글 lazy attach 시 호출 — 다중 인스턴스면 picker.</summary>
@@ -192,8 +207,75 @@ public partial class MainForm : Form
     }
 }
 
-/// <summary>버전 단일 진실원본 — Python forge/__init__.py 등가.</summary>
 public static class ForgeVersion
 {
-    public const string Version = "0.4.0";  // C# 포팅 — Python 0.3.3 후속
+    public const string Version = "0.4.0";  // C# 포팅 (Python 0.3.3 후속)
+}
+
+/// <summary>About 다이얼로그 — MessageBox 대신 단정한 폼.</summary>
+public sealed class AboutForm : Form
+{
+    public AboutForm()
+    {
+        Text = "Forge 정보";
+        ClientSize = new Size(440, 280);
+        StartPosition = FormStartPosition.CenterParent;
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        MinimizeBox = false;
+        MaximizeBox = false;
+        BackColor = ForgeTheme.PanelBg;
+        Font = ForgeTheme.Body();
+
+        var flow = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            Dock = DockStyle.Fill,
+            Padding = new Padding(24),
+            AutoSize = true,
+        };
+
+        flow.Controls.Add(new Label
+        {
+            Text = "Forge",
+            Font = new Font(ForgeTheme.H1().FontFamily, 22f, FontStyle.Bold),
+            ForeColor = ForgeTheme.Accent,
+            AutoSize = true,
+        });
+        flow.Controls.Add(new Label
+        {
+            Text = $"v{ForgeVersion.Version}",
+            Font = ForgeTheme.Body(),
+            ForeColor = ForgeTheme.TextMuted,
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 16),
+        });
+        flow.Controls.Add(new Label
+        {
+            Text = "한/글 보고서 자동 편집기\n" +
+                   "개조식 markdown → .hwpx 변환 + 활성 문서 정형룰 적용\n",
+            Font = ForgeTheme.Body(),
+            ForeColor = ForgeTheme.TextPrimary,
+            AutoSize = true,
+            MaximumSize = new Size(380, 0),
+            Margin = new Padding(0, 0, 0, 16),
+        });
+        flow.Controls.Add(new Label
+        {
+            Text = "작성자: kinphw\nhttps://github.com/kinphw/forge",
+            Font = ForgeTheme.Small(),
+            ForeColor = ForgeTheme.TextMuted,
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 16),
+        });
+
+        var closeBtn = new Button { Text = "닫기", DialogResult = DialogResult.OK };
+        ForgeTheme.StyleFlatButton(closeBtn);
+        closeBtn.Anchor = AnchorStyles.Right;
+        flow.Controls.Add(closeBtn);
+        AcceptButton = closeBtn;
+        CancelButton = closeBtn;
+
+        Controls.Add(flow);
+    }
 }
