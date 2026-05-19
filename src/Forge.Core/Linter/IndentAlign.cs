@@ -127,6 +127,9 @@ public static class IndentAlign
 
     internal static int BlockLen(dynamic hwp) => BlockChar(hwp).Length;
 
+    private static string Truncate(string s, int max) =>
+        s.Length <= max ? s.Replace("\n", "\\n") : s[..max].Replace("\n", "\\n") + "...";
+
     // ────────────────────────────────────────────────────────────────────
     // line 측정 — KeyIndicator out 파라미터 회피
     // ────────────────────────────────────────────────────────────────────
@@ -175,27 +178,34 @@ public static class IndentAlign
         dynamic hwp = hwpObj;
         log ??= _ => { };
 
-        // 한 줄 문단 검사 — ParaBegin/End caret 비교 (KeyIndicator 회피)
+        // 한 줄 문단 검사 — ParaBegin/End caret 비교
         hwp.Run("MoveParaBegin");
         var paraBeginPos = Range.GetCaretPos(hwp);
         hwp.Run("MoveParaEnd");
         var paraEndPos = Range.GetCaretPos(hwp);
         hwp.Run("MoveParaBegin");
-        log($"  [line] paraBegin={paraBeginPos} paraEnd={paraEndPos}");
 
         if (paraBeginPos == paraEndPos)
         {
-            log("  → 빈 문단/한 줄 문단, skip");
             hwp.Run("MoveNextParaBegin");
             return;
         }
 
-        // 진단용 — 문단 전체 텍스트
+        // ★ Fast skip — 문단 전체 텍스트 한 번에 추출. 비어있으면 즉시 skip.
+        // (이전: MoveSelNextWord 10회 + BlockChar 10회 dispatch 후에야 빈 문단 판정.
+        //  C# dynamic dispatch 의 IPC overhead 큰 환경에서 시각적으로 부산스러움.)
         hwp.Run("MoveSelParaEnd");
         var full = BlockChar(hwp);
         hwp.Run("Cancel");
         hwp.Run("MoveParaBegin");
-        log($"  [para] full={full.Replace("\n", "\\n")}");
+
+        if (string.IsNullOrWhiteSpace(full))
+        {
+            log($"  [line] empty para — fast skip");
+            hwp.Run("MoveNextParaBegin");
+            return;
+        }
+        log($"  [line] paraBegin={paraBeginPos} paraEnd={paraEndPos} text={Truncate(full, 40)}");
 
         // 첫 텍스트 워드 검색 — FWS only 워드 (빈 문자열) 건너뜀
         string? firstTextWord = null;

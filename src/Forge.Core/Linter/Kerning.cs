@@ -87,8 +87,20 @@ public static class Kerning
         dynamic hwp = hwpObj;
         log ??= _ => { };
 
-        // 1. 자간 reset
+        // ★ Fast skip — 빈 문단이면 자간 처리 건너뜀 (dispatch overhead 회피)
         hwp.Run("MoveParaBegin");
+        hwp.Run("MoveSelParaEnd");
+        var fullText = IndentAlign.BlockChar(hwp);
+        hwp.Run("Cancel");
+        hwp.Run("MoveParaBegin");
+        if (string.IsNullOrWhiteSpace(fullText))
+        {
+            log("  [empty para] kerning skip");
+            hwp.Run("MoveNextParaBegin");
+            return;
+        }
+
+        // 1. 자간 reset
         hwp.Run("MoveSelParaEnd");
         try
         {

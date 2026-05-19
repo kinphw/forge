@@ -327,7 +327,10 @@ public static class HwpxWriter
         spec ??= ReportSpec.Report1;
         log ??= _ => { };
 
-        var sel = Linter.Range.SelectionRange(hwp);
+        // hwp 가 dynamic 이라 호출 site 가 dynamic dispatch → 반환된 Nullable 이 unwrap
+        // 되어 .HasValue 못 잡힘 (RuntimeBinderException). object 로 cast 해 정적 호출.
+        object hwpObj = hwp;
+        var sel = Linter.Range.SelectionRange(hwpObj);
         log($"[md-convert] selection_range = {(sel.HasValue ? sel.Value.ToString() : "null")}");
 
         // 1) GetTextFile("UNICODE", "saveblock") — 선택 블록만 export

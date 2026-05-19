@@ -1,16 +1,14 @@
+// Forge.UI 진입점.
+// Python run.pyw 등가물. WinForms 표준 패턴 — STA + High DPI + 메인 폼 실행.
+
 namespace Forge.UI;
 
-static class Program
+internal static class Program
 {
-    /// <summary>
-    ///  The main entry point for the application.
-    /// </summary>
     [STAThread]
     static void Main()
     {
-        // To customize application configuration such as set high DPI settings or default font,
-        // see https://aka.ms/applicationconfiguration.
-        ApplicationConfiguration.Initialize();
-        Application.Run(new Form1());
-    }    
+        ApplicationConfiguration.Initialize();  // High DPI + GDI compat (WinForms default)
+        Application.Run(new MainForm());
+    }
 }
