@@ -15,6 +15,7 @@
 using Forge.Core;
 using Forge.Core.Formatter;
 using Forge.Core.Renderers;
+using Forge.Core.Templates;
 using Forge.Win32;
 
 namespace Forge.UI.Tabs;
@@ -110,6 +111,43 @@ public sealed class RealtimeTab : TabPage
         if (_pendingPersist.Count == 0) return;
         UserSettings.UpdateSection("realtime", new Dictionary<string, object?>(_pendingPersist));
         _pendingPersist.Clear();
+    }
+
+    /// <summary>외부에서 debounce timer 잔량을 즉시 flush.
+    /// MainForm 의 종료 시 / 💾 설정 저장 버튼이 호출.</summary>
+    public void FlushPersist() => OnPersistFlush(null, EventArgs.Empty);
+
+    /// <summary>
+    /// realtime 탭의 4 폰트 cluster + BlankSize 를 spec 에 주입한 새 ReportSpec 반환.
+    /// Python apply_overrides_to_spec 1:1 — 'realtime_tab 이 폰트 SSOT, 마크다운 변환은 따라감'.
+    ///
+    /// 매핑 규칙:
+    ///   Font1/Size1 (본문)    → bullets[*].Font·SizePt + Conclusion(Font/SizePt) + DateFont
+    ///   Font2/Size2 (주석)    → Annotation(Font/SizePt)
+    ///   Font3       (헤드라인) → Title/SectionTitle/Subsection/NoteHeader Font (face only)
+    ///   Font4       (울릉도)  → BulletSummaryFont
+    ///   BlankSize             → BlankParaPt
+    /// </summary>
+    public ReportSpec ApplyOverridesToSpec(ReportSpec spec)
+    {
+        var newBullets = spec.Bullets
+            .Select(b => b with { Font = Font1Name, SizePt = Font1Size })
+            .ToArray();
+        var newAnnotation = spec.Annotation with { Font = Font2Name, SizePt = Font2Size };
+        return spec with
+        {
+            Bullets = newBullets,
+            Annotation = newAnnotation,
+            ConclusionFont = Font1Name,
+            ConclusionSizePt = Font1Size,
+            DateFont = Font1Name,           // size 는 DateSizePt 그대로
+            TitleFont = Font3Name,
+            SectionTitleFont = Font3Name,
+            SubsectionFont = Font3Name,
+            NoteHeaderFont = Font3Name,
+            BulletSummaryFont = Font4Name,
+            BlankParaPt = BlankSize,
+        };
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -561,7 +599,7 @@ public sealed class RealtimeTab : TabPage
         }
     }
 
-    private void Log(string msg)
+    public void Log(string msg)
     {
         if (_logOutput is null || _logOutput.IsDisposed) return;
         if (InvokeRequired) { BeginInvoke((Action)(() => Log(msg))); return; }

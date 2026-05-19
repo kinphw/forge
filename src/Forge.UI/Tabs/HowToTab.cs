@@ -8,7 +8,7 @@ public sealed class HowToTab : TabPage
     private static readonly (string Tab, string Desc)[] TabRows =
     {
         ("① 개별 작업", "한/글 활성 문서에 룰 1개씩 적용 (단축키 또는 버튼)"),
-        ("② 양식삽입", "보고서 양식 11종을 커서 위치에 1-클릭 삽입"),
+        ("② 양식삽입", "보고서 양식 8종을 커서 위치에 1-클릭 삽입"),
         ("③ 마크다운", "개조식 markdown → 새 .hwpx 파일로 변환 (배치)"),
     };
 

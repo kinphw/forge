@@ -20,6 +20,10 @@ public partial class MainForm : Form
     private Label _statusDot = null!;
     private Button _hwpPickButton = null!;
     private RealtimeTab _realtimeTab = null!;
+    private MarkdownTab _markdownTab = null!;
+
+    public RealtimeTab? GetRealtimeTab() => _realtimeTab;
+    public MarkdownTab? GetMarkdownTab() => _markdownTab;
 
     public MainForm()
     {
@@ -35,7 +39,11 @@ public partial class MainForm : Form
         UpdateStatus();
 
         Shown += (_, _) => _realtimeTab.StartHotkeys();
-        FormClosing += (_, _) => _realtimeTab.StopHotkeys();
+        FormClosing += (_, _) =>
+        {
+            FlushAllSettings();           // 디바운스 잔량 강제 저장
+            _realtimeTab.StopHotkeys();
+        };
     }
 
     private void BuildUI()
@@ -87,10 +95,19 @@ public partial class MainForm : Form
         statusBar.Controls.Add(_statusDot);
         statusBar.Controls.Add(_statusLabel);
 
-        // 우측: 한/글 선택 + About 버튼
+        // 우측 (right→left 순서): About / 한/글 선택 / 💾 설정 저장
         _hwpPickButton = new Button { Text = "한/글 선택" };
         ForgeTheme.StyleFlatButton(_hwpPickButton);
         _hwpPickButton.Click += OnHwpPick;
+
+        var saveBtn = new Button { Text = "💾 설정 저장" };
+        ForgeTheme.StyleFlatButton(saveBtn);
+        saveBtn.Click += (_, _) =>
+        {
+            FlushAllSettings();
+            _statusLabel.Text = "✔ 모든 설정 저장 완료 — %APPDATA%\\Forge\\settings.json";
+            _statusLabel.ForeColor = ForgeTheme.Success;
+        };
 
         var aboutButton = new Button { Text = "?", MinimumSize = new Size(32, 30) };
         ForgeTheme.StyleFlatButton(aboutButton);
@@ -100,8 +117,10 @@ public partial class MainForm : Form
         {
             aboutButton.Location = new Point(statusBar.Width - 32 - ForgeTheme.PadLg, 7);
             _hwpPickButton.Location = new Point(aboutButton.Left - _hwpPickButton.Width - 8, 7);
+            saveBtn.Location = new Point(_hwpPickButton.Left - saveBtn.Width - 8, 7);
         }
         statusBar.Resize += (_, _) => RepositionRight();
+        statusBar.Controls.Add(saveBtn);
         statusBar.Controls.Add(_hwpPickButton);
         statusBar.Controls.Add(aboutButton);
 
@@ -115,11 +134,12 @@ public partial class MainForm : Form
             Padding = new Point(14, 6),
         };
         _realtimeTab = new RealtimeTab(State, UpdateStatus) { Text = "①  실시간 작업" };
+        _markdownTab = new MarkdownTab(State, UpdateStatus) { Text = "③  마크다운 입력" };
 
         _tabs.TabPages.Add(new HowToTab { Text = "⓪  How to?" });
         _tabs.TabPages.Add(_realtimeTab);
         _tabs.TabPages.Add(new TemplatesTab(State) { Text = "②  양식삽입" });
-        _tabs.TabPages.Add(new MarkdownTab(State, UpdateStatus) { Text = "③  마크다운 입력" });
+        _tabs.TabPages.Add(_markdownTab);
         _tabs.SelectedIndex = 1;  // 시작 탭 = 실시간
 
         Controls.Add(_tabs);
@@ -130,7 +150,7 @@ public partial class MainForm : Form
         OnResize(EventArgs.Empty);
     }
 
-    /// <summary>한/글 연결 상태 라벨 갱신.</summary>
+    /// <summary>한/글 연결 상태 라벨 갱신. attach 된 활성 문서 파일명도 표시.</summary>
     public void UpdateStatus()
     {
         if (State.Hwp is null)
@@ -142,9 +162,40 @@ public partial class MainForm : Form
         else
         {
             _statusDot.ForeColor = ForgeTheme.Success;
-            _statusLabel.Text = $"한/글 연결: {State.Hwp.VersionName}  #{State.Hwp.InstanceIndex}";
+            _statusLabel.Text = $"한/글 연결: {State.Hwp.VersionName}  #{State.Hwp.InstanceIndex}{FileSuffix()}";
             _statusLabel.ForeColor = ForgeTheme.TextPrimary;
         }
+    }
+
+    /// <summary>활성 문서 basename — `" — report.hwpx"` 또는 `" — (새 문서)"`.
+    /// best-effort: hwp.Path 가 빈 문자열이거나 dispatch 실패 시 빈 suffix.</summary>
+    private string FileSuffix()
+    {
+        try
+        {
+            dynamic hwp = State.Hwp!.Hwp;
+            string p = (string?)hwp.Path ?? "";
+            if (string.IsNullOrEmpty(p)) return " — (새 문서)";
+            return " — " + Path.GetFileName(p);
+        }
+        catch { return ""; }
+    }
+
+    /// <summary>모든 탭의 debounce 잔량 강제 flush — 종료 / 💾 버튼 / picker 후.</summary>
+    public void FlushAllSettings()
+    {
+        try { _realtimeTab.FlushPersist(); } catch { }
+        try { _markdownTab.FlushPersist(); } catch { }
+    }
+
+    /// <summary>현재 활성 탭의 로그 영역에 한 줄 출력 (지원하는 탭만).
+    /// picker/attach 결과 안내를 MessageBox 대신 로그로 흘려보내는 경로.</summary>
+    public void LogToActive(string msg)
+    {
+        var page = _tabs.SelectedTab;
+        if (ReferenceEquals(page, _markdownTab)) _markdownTab.Log(msg);
+        else if (ReferenceEquals(page, _realtimeTab)) _realtimeTab.Log(msg);
+        // HowTo / Templates 탭에는 로그 영역 없음 — silent
     }
 
     private void OnHwpPick(object? sender, EventArgs e)
@@ -152,9 +203,7 @@ public partial class MainForm : Form
         var instances = HwpSessionHelpers.ListInstances();
         if (instances.Count == 0)
         {
-            MessageBox.Show(this,
-                "ROT 에 등록된 한/글 인스턴스 없음.\n한/글을 먼저 실행한 뒤 다시 시도해주세요.",
-                "한/글 선택", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            LogToActive("[한/글 선택] ROT 에 등록된 인스턴스 없음 — 한/글을 먼저 실행해 주세요.");
             return;
         }
         using var picker = new HwpPickerForm(instances);
@@ -163,6 +212,7 @@ public partial class MainForm : Form
             State.Hwp = HwpSessionHelpers.AttachToInstance(chosen);
             State.PreferredMoniker = chosen.MonikerName;
             UpdateStatus();
+            LogToActive($"[한/글 선택] {chosen.DisplayLabel} 선택됨 — 작업 버튼을 다시 눌러 주세요.");
         }
     }
 
@@ -195,13 +245,14 @@ public partial class MainForm : Form
                 State.Hwp = HwpSessionHelpers.AttachToInstance(chosen);
                 State.PreferredMoniker = chosen.MonikerName;
                 UpdateStatus();
+                LogToActive($"[한/글 선택] {chosen.DisplayLabel} 선택됨 — 작업 버튼을 다시 눌러 주세요.");
                 return true;
             }
             return false;
         }
         catch (NoExistingHwpException ex)
         {
-            MessageBox.Show(this, ex.Message, "한/글 연결 실패", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            LogToActive($"[한/글 연결] ✘ {ex.Message}");
             return false;
         }
     }
