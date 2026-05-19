@@ -38,6 +38,8 @@ public static class ForgeTheme
     public static Font BodyBold()=> new(FamilyPrimary, 10f, FontStyle.Bold);
     public static Font Small()   => new(FamilyPrimary, 9f);
     public static Font Mono()    => new(FamilyMono, 9f);
+    public static Font MonoMd()  => new(FamilyMono, 10f);   // 로그·읽기용
+    public static Font MonoLg()  => new(FamilyMono, 11f);   // md 입력 — 가독성 우선
     public static Font Hint()    => new(FamilyPrimary, 9f, FontStyle.Italic);
 
     // ─ 패딩/여백 ───────────────────────────────────────────────────────
