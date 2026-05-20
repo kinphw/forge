@@ -109,6 +109,14 @@ public static class UserSettings
     public static bool SetSectionEntry(string name, string key, object? value) =>
         UpdateSection(name, new Dictionary<string, object?> { [key] = value });
 
+    /// <summary>섹션 통째 삭제. 이미 없으면 no-op + true 반환.</summary>
+    public static bool RemoveSection(string name)
+    {
+        var data = Load();
+        if (!data.Remove(name)) return true;
+        return Save(data);
+    }
+
     // ─ keymap helpers ──────────────────────────────────────────────────
 
     /// <summary>

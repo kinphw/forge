@@ -251,9 +251,53 @@ public sealed class RealtimeTab : TabPage
         };
         bar.Controls.Add(_showIndividual);
 
-        bar.Width = 380;
+        var resetBtn = new Button { Text = "🔄 설정 초기화" };
+        ForgeTheme.StyleFlatButton(resetBtn);
+        resetBtn.Click += (_, _) => OnResetSettings();
+        resetBtn.Location = new Point(280, 4);
+        bar.Controls.Add(resetBtn);
+        _tooltip.SetToolTip(resetBtn,
+            "폰트·크기·단축키를 모두 default 로 복원.\n" +
+            "한/글 적용 동작은 즉시 default. UI 입력 칸은 다음 앱 시작 시 반영.");
+
+        bar.Width = 480;
         bar.Height = 36;
         return bar;
+    }
+
+    /// <summary>
+    /// 폰트(4) + 빈줄 크기 + 단축키 letter 8개를 default 로 복원.
+    /// 메모리 상태 + UserSettings 의 realtime·keymap 섹션 즉시 reset.
+    /// UI 입력 칸은 컨트롤 ref 추적 비용 회피 위해 재시작 시 반영.
+    /// </summary>
+    private void OnResetSettings()
+    {
+        var dr = MessageBox.Show(FindForm(),
+            "RealtimeTab 의 폰트·크기·단축키를 모두 default 로 초기화합니다.\n\n" +
+            "• 한/글 적용 동작(hotkey, 마크다운 변환의 SSOT 주입) 은 즉시 default 로 복원됩니다.\n" +
+            "• UI 입력 칸 (폰트 콤보·크기·단축키 letter) 표시는 다음 앱 시작 시 반영됩니다.\n\n" +
+            "계속하시겠습니까?",
+            "설정 초기화",
+            MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+        if (dr != DialogResult.OK) return;
+
+        Font1Name = "휴먼명조";    Font1Size = 15.0;
+        Font2Name = "맑은 고딕";    Font2Size = 12.0;
+        Font3Name = "HY헤드라인M"; Font3Size = 15.0;
+        Font4Name = "HY울릉도M";   Font4Size = 15.0;
+        BlankSize = 8.0;
+
+        // pending debounce 폐기 — reset 직전의 미반영 변경이 살아남는 사고 방지
+        _pendingPersist.Clear();
+        _persistTimer?.Stop();
+
+        var okRt = UserSettings.RemoveSection("realtime");
+        var okKm = UserSettings.RemoveSection("keymap");
+
+        Log($"✔ 설정 초기화 완료 (realtime={(okRt ? "OK" : "FAIL")}, keymap={(okKm ? "OK" : "FAIL")}).");
+        Log("  메모리 상태는 즉시 default 로 복원됨 — 다음 hotkey/변환부터 default 적용.");
+        Log("  UI 입력 칸은 다음 앱 시작 시 default 로 표시됩니다.");
+        _updateStatus();
     }
 
     private GroupBox BuildMainGroup()
@@ -548,11 +592,65 @@ public sealed class RealtimeTab : TabPage
 
     public void RunAutoAlign()
     {
+        // Python _run_combined_async / _combined_one_paragraph 1:1 (realtime_tab.py:1216-).
+        // apply_per_paragraph 한 번 호출 + 콜백 안에서 매 문단 (들·자·들) 3단계 연속.
+        //
+        // ★ 직전 버전 (들·자·들 각각 ApplyPerParagraph 별도 호출) 의 두 버그:
+        //   1) 첫 ApplyPerParagraph 가 selection 을 Cancel — 2/3차 호출이 단일캐럿
+        //      모드로 빠져 현재 문단 1개만 처리. 다중 문단 선택 시 들·자·들이
+        //      전체에 일관 적용되지 못함.
+        //   2) Python 은 한 문단 안에서 들→자→들 연속이어야 자간조정의 wrap 위치
+        //      계산이 인덴트와 일치. 들(전체)→자(전체)→들(전체) 순서는 의미 깨짐.
+        //
+        // ★ 매 단계 사이 startPos 복원:
+        //   ProcessParagraph/AdjustParagraph 끝나면 caret 은 다음 문단 시작 부근으로
+        //   이동 — 다음 단계가 같은 문단을 처리하려면 시작 위치로 되돌려야 함.
+        //   SetCaretPos 실패 시 MoveParaBegin fallback (Python 동일).
+
         if (_state.Hwp is null) return;
         Forge.Core.Linter.LogFn lg = msg => Log("  " + msg);
-        Forge.Core.Linter.IndentAlign.AlignCurrentParagraph(_state.Hwp.Hwp, lg);
-        Forge.Core.Linter.Kerning.AdjustKerningCurrentParagraph(_state.Hwp.Hwp, lg);
-        Forge.Core.Linter.IndentAlign.AlignCurrentParagraph(_state.Hwp.Hwp, lg);
+
+        Forge.Core.Linter.ParaActionFn combined = (hwpObj, logArg) =>
+        {
+            dynamic h = hwpObj;
+            var log = logArg ?? (msg => { });
+
+            h.Run("MoveParaBegin");
+            var startPos = Forge.Core.Linter.Range.GetCaretPos(h);
+            log($"[combined] 문단 시작 pos={startPos}");
+
+            void Restore(string stage)
+            {
+                try
+                {
+                    Forge.Core.Linter.Range.SetCaretPos(h, startPos);
+                    log($"[restore→{stage}] SetCaretPos → {startPos}");
+                }
+                catch (Exception e)
+                {
+                    log($"[restore→{stage}] 복원 실패 ({e.Message}) — MoveParaBegin fallback");
+                    h.Run("MoveParaBegin");
+                }
+            }
+
+            // 1) 1차 들여쓰기 — line wrap 기준 확정 (없으면 자간 효과 죽음)
+            log("--- 1단계: 들여쓰기 정렬 (wrap 기준 확정) ---");
+            Forge.Core.Linter.IndentAlign.ProcessParagraph(h, log);
+
+            // 2) 자간조정 — 확정된 wrap 위에서 어절 잘림 보정
+            Restore("자간");
+            log("--- 2단계: 자간조정 ---");
+            Forge.Core.Linter.Kerning.AdjustParagraph(h, log);
+
+            // 3) 2차 들여쓰기 — 자간 drift 보정
+            Restore("재정렬");
+            log("--- 3단계: 들여쓰기 재정렬 (drift 보정) ---");
+            Forge.Core.Linter.IndentAlign.ProcessParagraph(h, log);
+        };
+
+        Log("━━━━━━ 자동 정렬 (들·자·들) 시작 ━━━━━━");
+        Forge.Core.Linter.Range.ApplyPerParagraph(_state.Hwp.Hwp, combined, lg);
+        Log("━━━━━━ 자동 정렬 완료 ━━━━━━");
     }
 
     public void RunWordPull()

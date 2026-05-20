@@ -92,35 +92,29 @@ public static class IndentAlign
     // InitScan / GetText helpers (block_char 등가)
     // ────────────────────────────────────────────────────────────────────
 
-    /// <summary>선택 영역의 텍스트. InitScan + GetText + ReleaseScan.</summary>
+    /// <summary>
+    /// 선택 영역의 텍스트.
+    ///
+    /// ★ GetTextFile("UNICODE", "saveblock") 단일 경로 (dynamic 친화).
+    ///   한컴 공식 시그너처 (HwpAutomation_2504.txt p.23):
+    ///     long GetText(BSTR FAR* text)   ← text 가 out 파라미터
+    ///   → C# dynamic 으로 out 파라미터 BSTR 수신 불가. Python pywin32 만
+    ///     자동 (status, text) tuple wrap 으로 가능했던 것. C# 에서는 영구히
+    ///     InitScan+GetText 패턴 사용 불가 — 직접 원인으로 Q/W hotkey 모든 문단
+    ///     empty 판정 사고.
+    ///   해결: GetTextFile("UNICODE", "saveblock") — VARIANT 반환, selection 한정.
+    ///   ConvertSelectionToHwpx (HwpxWriter:343) 와 동일 우회.
+    ///   주의: 한컴 docs "개체 선택 상태에서는 동작하지 않는다" — 표/이미지/도형
+    ///   selection 케이스는 빈 문자열 반환 (acceptable).
+    /// </summary>
     internal static string BlockChar(dynamic hwp)
     {
         try
         {
-            // Python: hwp.InitScan(option=None, Range=0xff, spara=None, spos=None, epara=None, epos=None)
-            // C# dynamic: positional 인자 (모든 None → null, Range=0xff)
-            hwp.InitScan(null, 0xff, null, null, null, null);
-            // GetText 는 (success_flag, text) 또는 비슷한 tuple 반환 — dynamic 으로 수신
-            var result = hwp.GetText();
-            try { hwp.ReleaseScan(); } catch { /* skip */ }
-
-            if (result is null) return "";
-            // result 가 tuple-like 면 result[1] 또는 result.Item(1) 등으로 추출
-            try
-            {
-                var text = result[1];
-                return text?.ToString() ?? "";
-            }
-            catch { /* indexer 실패 */ }
-            try
-            {
-                return result.ToString() ?? "";
-            }
-            catch { return ""; }
+            return (hwp.GetTextFile("UNICODE", "saveblock") as string) ?? "";
         }
         catch
         {
-            try { hwp.ReleaseScan(); } catch { /* skip */ }
             return "";
         }
     }
@@ -194,8 +188,13 @@ public static class IndentAlign
         // ★ Fast skip — 문단 전체 텍스트 한 번에 추출. 비어있으면 즉시 skip.
         // (이전: MoveSelNextWord 10회 + BlockChar 10회 dispatch 후에야 빈 문단 판정.
         //  C# dynamic dispatch 의 IPC overhead 큰 환경에서 시각적으로 부산스러움.)
+        //
+        // ★ string 명시 — hwp 가 dynamic 이라 BlockChar 호출 전체가 dynamic dispatch
+        //   되어 반환값도 dynamic 으로 wrap. var 로 받으면 후속 .Length / [..^1] 등
+        //   indexer/Range slice 가 dynamic dispatch 되며 RuntimeBinderException.
+        //   명시적 string 으로 받아 정적 호출 chain 복원.
         hwp.Run("MoveSelParaEnd");
-        var full = BlockChar(hwp);
+        string full = BlockChar(hwp);
         hwp.Run("Cancel");
         hwp.Run("MoveParaBegin");
 
@@ -213,7 +212,7 @@ public static class IndentAlign
         for (int trial = 0; trial < 10; trial++)
         {
             hwp.Run("MoveSelNextWord");
-            var cRaw = BlockChar(hwp);
+            string cRaw = BlockChar(hwp);
             var stripped = cRaw.Trim();
             log($"  [skip-search#{trial}] raw={cRaw} stripped={stripped}");
             if (stripped.Length == 0)
@@ -237,8 +236,8 @@ public static class IndentAlign
         // 본문 워드 검색
         hwp.Run("MoveParaBegin");
         hwp.Run("MoveSelNextWord");
-        var c2Raw = BlockChar(hwp);
-        var c2 = c2Raw.Length > 0 ? c2Raw[..^1] : "";
+        string c2Raw = BlockChar(hwp);
+        string c2 = c2Raw.Length > 0 ? c2Raw[..^1] : "";
         log($"  [body-search#0] raw={c2Raw} after[:-1]={c2} body={IsBodyWord(c2)}");
 
         int iters = 0;

@@ -9,8 +9,11 @@
 //
 // 실시간 모드 (탭 ③) 전용 — 배치 모드 STAGE 2 에서는 호출 안 함.
 //
-// ★ KeyIndicator (out 파라미터, C# dynamic 부적합) 우회 — line 측정은 MoveLineDown
-//   반복 + GetPosBySet 변화 감지로 대체.
+// ★ 줄 측정 — LineDiff 만 사용 (MoveLineDown 반복 + GetPosBySet).
+//   한컴 공식 KeyIndicator 시그너처: BOOL KeyIndicator(long*, long*, ..., 8개 out)
+//   Remark 명시 "포인터를 사용할 수 없는 언어에서는 사용이 불가능". C# dynamic 으로
+//   out 파라미터 수신 불가 → Python 의 KeyIndicator()[5] 방식 영구히 적용 불가.
+//   Python pywin32 만 out 파라미터를 자동 tuple wrap 해서 가능했던 것.
 
 namespace Forge.Core.Linter;
 
@@ -25,11 +28,14 @@ public static class Squeeze
         hwp.Run("MoveParaBegin");
 
         // 1. 첫 텍스트 워드 — 빈 문단 판정
+        // ★ string 명시 — hwp 가 dynamic 이라 BlockChar 호출이 dynamic dispatch 되어
+        //   반환값도 dynamic. var 로 받으면 후속 .Length / [..^1] indexer 가 dynamic
+        //   dispatch 되며 RuntimeBinderException (string.this[int] vs Range slice).
         bool hasText = false;
         for (int trial = 0; trial < 10; trial++)
         {
             hwp.Run("MoveSelNextWord");
-            var cRaw = IndentAlign.BlockChar(hwp);
+            string cRaw = IndentAlign.BlockChar(hwp);
             var stripped = cRaw.Trim();
             log($"  [skip-search#{trial}] raw={cRaw} stripped={stripped}");
             if (stripped.Length == 0)
@@ -51,8 +57,8 @@ public static class Squeeze
         // 2. 본문 워드 발견까지 점프
         hwp.Run("MoveParaBegin");
         hwp.Run("MoveSelNextWord");
-        var c2Raw = IndentAlign.BlockChar(hwp);
-        var c2 = c2Raw.Length > 0 ? c2Raw[..^1] : "";
+        string c2Raw = IndentAlign.BlockChar(hwp);
+        string c2 = c2Raw.Length > 0 ? c2Raw[..^1] : "";
 
         int iters = 0;
         bool found = false;
@@ -65,9 +71,10 @@ public static class Squeeze
                 break;
             }
             hwp.Run("Cancel");
-            var curPos = Range.GetCaretPos(hwp);
+            // 정적 타입 명시 — hwp dynamic dispatch 결과의 dynamic 전염 차단
+            CaretPos curPos = Range.GetCaretPos(hwp);
             hwp.Run("MoveSelNextWord");
-            var newPos = Range.GetCaretPos(hwp);
+            CaretPos newPos = Range.GetCaretPos(hwp);
             if (curPos == newPos && lastPos == curPos)
                 break;
             lastPos = curPos;
@@ -84,36 +91,53 @@ public static class Squeeze
         }
 
         hwp.Run("MoveWordBegin");
-        var pos = Range.GetCaretPos(hwp);
+        CaretPos pos = Range.GetCaretPos(hwp);
         log($"  [body-start] pos={pos}");
         hwp.Run("Cancel");
         return pos;
     }
 
     /// <summary>
-    /// 두 위치 사이의 줄 수 차이 (start → end). KeyIndicator 우회용.
-    /// MoveLineDown 반복으로 측정. 동일 줄이면 0, end 가 더 아래면 양수.
+    /// start ~ end 줄 수 (양 끝 포함). MoveLineDown 반복 + GetPosBySet 비교.
+    /// 한컴 KeyIndicator 는 out 파라미터라 C# dynamic 에서 사용 불가.
     /// </summary>
-    private static int LineDiff(dynamic hwp, CaretPos start, CaretPos end)
+    private static int MeasureLineSpan(dynamic hwp, CaretPos start, CaretPos end, LogFn log)
     {
-        if (start == end) return 0;
+        if (start == end) { log("  [line] start==end → 1 줄"); return 1; }
         Range.SetCaretPos(hwp, start);
         int down = 0;
         const int max = 200;
         while (down < max)
         {
-            var before = Range.GetCaretPos(hwp);
-            // end 와 같거나 지나쳤으면 종료
-            if (before.List == end.List && before.Para == end.Para && before.Pos >= end.Pos)
-                return down;
+            CaretPos before = Range.GetCaretPos(hwp);
+            if (PosReachedOrPassed(before, end))
+            {
+                log($"  [line] {down + 1} 줄 (도달, before={before})");
+                return down + 1;
+            }
             hwp.Run("MoveLineDown");
-            var after = Range.GetCaretPos(hwp);
-            if (after == before) break;  // 진행 멈춤
+            CaretPos after = Range.GetCaretPos(hwp);
+            if (after == before)
+            {
+                log($"  [line] 진행 멈춤 — {down + 1} 줄로 추정");
+                break;
+            }
             down++;
-            if (after.List == end.List && after.Para == end.Para && after.Pos >= end.Pos)
-                return down;
+            if (PosReachedOrPassed(after, end))
+            {
+                log($"  [line] {down + 1} 줄 (도달, after={after})");
+                return down + 1;
+            }
         }
-        return down;
+        return down + 1;
+    }
+
+    private static bool PosReachedOrPassed(CaretPos cur, CaretPos end)
+    {
+        if (cur.List != end.List) return false;
+        if (cur.Para > end.Para) return true;
+        if (cur.Para < end.Para) return false;
+        return cur.Pos >= end.Pos;
     }
 
     /// <summary>문단 마지막 줄의 본문 텍스트 (마커 영역 제외).</summary>
@@ -122,7 +146,8 @@ public static class Squeeze
         Range.SetCaretPos(hwp, bodyStart);
         hwp.Run("MoveParaEnd");
         hwp.Run("MoveSelLineBegin");
-        var text = IndentAlign.BlockChar(hwp).Trim();
+        string raw = IndentAlign.BlockChar(hwp);
+        var text = raw.Trim();
         hwp.Run("Cancel");
         return text;
     }
@@ -139,7 +164,11 @@ public static class Squeeze
         log("[fit_to_one_line] 시작");
 
         // 1. 본문 시작 위치
-        var bodyStart = FindBodyStartPos(hwp, log);
+        // ★ 정적 타입 명시 — hwp 가 dynamic 이라 FindBodyStartPos / GetCaretPos
+        //   호출이 dynamic dispatch 되어 반환값이 dynamic 으로 wrap.
+        //   var 로 받으면 bodyStart.Value (nullable unwrap) 가 dynamic binder 에
+        //   걸려 "CaretPos does not contain Value" RuntimeBinderException 발생.
+        CaretPos? bodyStart = FindBodyStartPos(hwp, log);
         if (bodyStart is null)
         {
             log("[fit_to_one_line] 빈 문단 — skip");
@@ -149,10 +178,10 @@ public static class Squeeze
         // 2. 문단 끝
         Range.SetCaretPos(hwp, bodyStart.Value);
         hwp.Run("MoveParaEnd");
-        var paraEnd = Range.GetCaretPos(hwp);
+        CaretPos paraEnd = Range.GetCaretPos(hwp);
 
-        // 3. 줄 수 측정 (LineDiff 로 우회 — KeyIndicator 회피)
-        int initialLines = LineDiff(hwp, bodyStart.Value, paraEnd) + 1;
+        // 3. 줄 수 측정 — KeyIndicator 우선 (Python 동등), 실패 시 LineDiff fallback
+        int initialLines = MeasureLineSpan(hwp, bodyStart.Value, paraEnd, log);
         log($"  body_start={bodyStart.Value} para_end={paraEnd} → {initialLines} 줄");
 
         if (initialLines <= 1)
@@ -188,7 +217,7 @@ public static class Squeeze
             hwp.Run("CharShapeSpacingDecrease");
             hwp.Run("Cancel");
 
-            int newLines = LineDiff(hwp, bodyStart.Value, paraEnd) + 1;
+            int newLines = MeasureLineSpan(hwp, bodyStart.Value, paraEnd, log);
 
             if (newLines <= target)
             {

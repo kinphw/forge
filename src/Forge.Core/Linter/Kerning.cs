@@ -88,9 +88,12 @@ public static class Kerning
         log ??= _ => { };
 
         // ★ Fast skip — 빈 문단이면 자간 처리 건너뜀 (dispatch overhead 회피)
+        // string 명시 — BlockChar(dynamic hwp) 가 dynamic dispatch 되어 반환값이
+        // dynamic 으로 wrap. 후속 IsNullOrWhiteSpace 가 정적 string 시그너처를
+        // 못 잡으면 binder 가 깨질 위험. 명시 string 으로 정적 chain 복원.
         hwp.Run("MoveParaBegin");
         hwp.Run("MoveSelParaEnd");
-        var fullText = IndentAlign.BlockChar(hwp);
+        string fullText = IndentAlign.BlockChar(hwp);
         hwp.Run("Cancel");
         hwp.Run("MoveParaBegin");
         if (string.IsNullOrWhiteSpace(fullText))

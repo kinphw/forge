@@ -5,6 +5,7 @@
 //   dotnet run --project src/Forge.Probe -- list                 # ROT 인스턴스 나열
 //   dotnet run --project src/Forge.Probe -- insert               # 첫 인스턴스에 텍스트 1줄 삽입
 //   dotnet run --project src/Forge.Probe -- convert <in.md> <out.hwpx>  # md → 새 hwpx 변환
+//   dotnet run --project src/Forge.Probe -- font <fontName> [<sizePt>]  # SetFont 진단 (캐럿/선택영역)
 //
 // 인자 없으면 list 동작.
 
@@ -30,6 +31,8 @@ var staThread = new Thread(() =>
             "insert"  => InsertOneLine(),
             "convert" => ConvertMarkdown(args),
             "diag"    => DiagnoseDispatch(),
+            "font"    => DiagnoseSetFont(args),
+            "font-routed" => DiagnoseSetFontRouted(args),
             _         => PrintUsage(),
         };
     }
@@ -283,5 +286,224 @@ static int PrintUsage()
     Console.WriteLine("  list                            — ROT 한/글 인스턴스 나열 (기본)");
     Console.WriteLine("  insert                          — 첫 인스턴스에 텍스트 1줄 삽입");
     Console.WriteLine("  convert <in.md> [<out.hwpx>]    — md → 새 hwpx (W2 검증)");
+    Console.WriteLine("  font <fontName> [<sizePt>]      — raw 7면 TTF set 스모크테스트");
+    Console.WriteLine("  font-routed <fontName> [<sizePt>]");
+    Console.WriteLine("                                  — Primitives.SetFont 라우팅 호출 (휴먼명조 → HFT dispatch)");
+    return 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SetFont 스모크테스트
+//
+// 사용: probe font "HY헤드라인M" 15
+//   1. ROT 의 첫 한/글 인스턴스에 attach
+//   2. 캐럿/선택영역에 SetFont 와 동치인 5단계 풀어쓰기 수행 (Execute 반환값 캡처)
+//   3. 적용 후 CharShape GetDefault 로 7면 face/type readback
+//   4. "비교용 텍스트" 1줄 insert → 한/글 화면에서 폰트 확인 가능
+//
+// 출력 가이드:
+//   - Execute 반환값 == False → ParameterSet 자체 거부 (보통 잘못된 키/값)
+//   - Execute == True but readback face != 요청 face → 한컴이 시스템에서 face 못 찾고 fallback
+//   - Execute == True + readback face == 요청 face → 적용 성공, 시각 미반영 시 다른 곳 의심
+// ─────────────────────────────────────────────────────────────────────────
+static int DiagnoseSetFont(string[] args)
+{
+    if (args.Length < 2)
+    {
+        Console.Error.WriteLine("[probe] usage: font <fontName> [<sizePt>]");
+        Console.Error.WriteLine("  예: probe font \"HY헤드라인M\" 15");
+        return 64;
+    }
+    var fontName = args[1];
+    var sizePt = args.Length >= 3 && double.TryParse(args[2], out var p) ? p : 15.0;
+
+    Console.WriteLine($"[font] 요청: face='{fontName}' size={sizePt}pt");
+    Console.WriteLine($"[font] face codepoints:");
+    for (int i = 0; i < fontName.Length; i++)
+        Console.WriteLine($"         [{i}] '{fontName[i]}' U+{(int)fontName[i]:X4}");
+
+    HwpSession session;
+    try
+    {
+        session = HwpSessionHelpers.AttachOrCreate(visible: true, allowSpawn: false);
+    }
+    catch (NoExistingHwpException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 2; }
+    catch (MultipleHwpInstancesException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 3; }
+    Console.WriteLine($"[font] attach: {session.VersionName} #{session.InstanceIndex}");
+    dynamic hwp = session.Hwp;
+
+    // ── 1) 5단계 풀어쓰기 — Execute 반환값 캡처 (face/type)
+    Console.WriteLine($"[font] (1/4) face/type 7면 set + Execute …");
+    var act = hwp.CreateAction("CharShape");
+    var s = act.CreateSet();
+    act.GetDefault(s);
+    var faceItems = new (string K, object V)[]
+    {
+        ("FaceNameUser",     fontName), ("FontTypeUser",     1),
+        ("FaceNameSymbol",   fontName), ("FontTypeSymbol",   1),
+        ("FaceNameOther",    fontName), ("FontTypeOther",    1),
+        ("FaceNameJapanese", fontName), ("FontTypeJapanese", 1),
+        ("FaceNameHanja",    fontName), ("FontTypeHanja",    1),
+        ("FaceNameLatin",    fontName), ("FontTypeLatin",    1),
+        ("FaceNameHangul",   fontName), ("FontTypeHangul",   1),
+    };
+    foreach (var (k, v) in faceItems)
+    {
+        try { s.SetItem(k, v); }
+        catch (Exception ex) { Console.WriteLine($"         ✘ SetItem {k} = {v} 실패: {ex.Message}"); }
+    }
+    object execResult = act.Execute(s);
+    Console.WriteLine($"         Execute 반환: {execResult} ({execResult?.GetType().FullName})");
+
+    // ── 2) Height 별도 Execute
+    Console.WriteLine($"[font] (2/4) Height 별도 set + Execute …");
+    var act2 = hwp.CreateAction("CharShape");
+    var s2 = act2.CreateSet();
+    act2.GetDefault(s2);
+    int hwpHeight = (int)(sizePt * 100);
+    try { s2.SetItem("Height", hwpHeight); }
+    catch (Exception ex) { Console.WriteLine($"         ✘ SetItem Height = {hwpHeight} 실패: {ex.Message}"); }
+    object execResult2 = act2.Execute(s2);
+    Console.WriteLine($"         Execute 반환: {execResult2}");
+
+    // ── 3) Readback — 현재 typing attr 의 7면 face/type
+    Console.WriteLine($"[font] (3/4) Readback (CharShape GetDefault) …");
+    try
+    {
+        var rb = hwp.HParameterSet.HCharShape;
+        hwp.HAction.GetDefault("CharShape", rb.HSet);
+        string[] faces = { "Hangul", "Latin", "User", "Symbol", "Other", "Japanese", "Hanja" };
+        foreach (var f in faces)
+        {
+            object face = ((object)rb).GetType().InvokeMember(
+                $"FaceName{f}", System.Reflection.BindingFlags.GetProperty, null, rb, null) ?? "";
+            object type = ((object)rb).GetType().InvokeMember(
+                $"FontType{f}", System.Reflection.BindingFlags.GetProperty, null, rb, null) ?? 0;
+            var faceStr = face?.ToString() ?? "";
+            var ok = faceStr == fontName ? "✔" : "✘";
+            Console.WriteLine($"         {ok} {f,-9} face='{faceStr}' type={type}");
+        }
+        object height = ((object)rb).GetType().InvokeMember(
+            "Height", System.Reflection.BindingFlags.GetProperty, null, rb, null) ?? 0;
+        Console.WriteLine($"         Height = {height} (요청 {hwpHeight})");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"         readback 실패: {ex.Message}");
+    }
+
+    // ── 4) 비교 텍스트 insert — 한/글 화면 시각 확인
+    Console.WriteLine($"[font] (4/4) 비교 텍스트 insert …");
+    try
+    {
+        ComHelpers.InsertText(hwp, $"[{fontName} {sizePt}pt] 한글ABC 가나다 0123");
+        ComHelpers.Run(hwp, "BreakPara");
+        Console.WriteLine($"         ✔ 한/글 화면 확인 — 위 줄의 face 가 '{fontName}' 인지 봐주세요.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"         insert 실패: {ex.Message}");
+    }
+
+    return 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SetFont 라우팅 스모크테스트 — Primitives.SetFont 직접 호출.
+// "휴먼명조" 면 내부적으로 SetFontHumanmyongjo (FontType=2 HFT + 7면 별 face) 로 dispatch.
+// 그 외엔 일반 SetFont (FontType=1 TTF + 7면 동일 face).
+//
+// readback 으로 7면 face/type 확인 — HFT 라우팅이 실제로 통하는지 검증.
+// ─────────────────────────────────────────────────────────────────────────
+static int DiagnoseSetFontRouted(string[] args)
+{
+    if (args.Length < 2)
+    {
+        Console.Error.WriteLine("[probe] usage: font-routed <fontName> [<sizePt>]");
+        return 64;
+    }
+    var fontName = args[1];
+    var sizePt = args.Length >= 3 && double.TryParse(args[2], out var p) ? p : 15.0;
+
+    Console.WriteLine($"[font-routed] 요청: face='{fontName}' size={sizePt}pt");
+    Console.WriteLine($"[font-routed] 라우팅: {(fontName == "휴먼명조" ? "SetFontHumanmyongjo (FontType=2 HFT)" : "SetFont 일반 (FontType=1 TTF)")}");
+
+    HwpSession session;
+    try
+    {
+        session = HwpSessionHelpers.AttachOrCreate(visible: true, allowSpawn: false);
+    }
+    catch (NoExistingHwpException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 2; }
+    catch (MultipleHwpInstancesException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 3; }
+    Console.WriteLine($"[font-routed] attach: {session.VersionName} #{session.InstanceIndex}");
+    dynamic hwp = session.Hwp;
+
+    Console.WriteLine($"[font-routed] (1/3) Primitives.SetFont 호출 …");
+    try
+    {
+        Forge.Core.Renderers.Primitives.SetFont(hwp, fontName, sizePt, bold: false);
+        Console.WriteLine($"         ✔ 예외 없이 반환 (Execute 반환값은 SetParam 내부에서 무시됨)");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"         ✘ 예외: {ex.GetType().Name}: {ex.Message}");
+    }
+
+    Console.WriteLine($"[font-routed] (2/3) Readback (CharShape GetDefault) …");
+    try
+    {
+        var rb = hwp.HParameterSet.HCharShape;
+        hwp.HAction.GetDefault("CharShape", rb.HSet);
+        string[] faces = { "Hangul", "Latin", "User", "Symbol", "Other", "Japanese", "Hanja" };
+
+        // 휴먼명조 라우팅 시 7면 별 기대 face
+        var expected = fontName == "휴먼명조"
+            ? new Dictionary<string, (string face, int type)>
+            {
+                ["Hangul"]   = ("휴먼명조",   2),
+                ["Latin"]    = ("HCI Poppy",  2),
+                ["User"]     = ("명조",       2),
+                ["Symbol"]   = ("한양신명조", 2),
+                ["Other"]    = ("한양신명조", 2),
+                ["Japanese"] = ("한양신명조", 2),
+                ["Hanja"]    = ("한양신명조", 2),
+            }
+            : faces.ToDictionary(f => f, _ => (fontName, 1));
+
+        foreach (var f in faces)
+        {
+            object face = ((object)rb).GetType().InvokeMember(
+                $"FaceName{f}", System.Reflection.BindingFlags.GetProperty, null, rb, null) ?? "";
+            object type = ((object)rb).GetType().InvokeMember(
+                $"FontType{f}", System.Reflection.BindingFlags.GetProperty, null, rb, null) ?? 0;
+            var faceStr = face?.ToString() ?? "";
+            var typeInt = Convert.ToInt32(type);
+            var exp = expected[f];
+            var ok = (faceStr == exp.Item1 && typeInt == exp.Item2) ? "✔" : "✘";
+            Console.WriteLine($"         {ok} {f,-9} face='{faceStr}' type={typeInt}  (기대: '{exp.Item1}' type={exp.Item2})");
+        }
+        object height = ((object)rb).GetType().InvokeMember(
+            "Height", System.Reflection.BindingFlags.GetProperty, null, rb, null) ?? 0;
+        var heightInt = Convert.ToInt32(height);
+        int expectedHeight = (int)(sizePt * 100);
+        Console.WriteLine($"         {(heightInt == expectedHeight ? "✔" : "✘")} Height = {heightInt} (요청 {expectedHeight})");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"         readback 실패: {ex.Message}");
+    }
+
+    Console.WriteLine($"[font-routed] (3/3) 비교 텍스트 insert …");
+    try
+    {
+        ComHelpers.InsertText(hwp, $"[routed:{fontName} {sizePt}pt] 한글ABC 가나다 0123");
+        ComHelpers.Run(hwp, "BreakPara");
+        Console.WriteLine($"         ✔ 한/글 화면 확인 — 위 줄의 face 가 '{fontName}' 인지.");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"         insert 실패: {ex.Message}");
+    }
+
     return 0;
 }

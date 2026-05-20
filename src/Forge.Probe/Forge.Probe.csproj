@@ -8,6 +8,14 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+
+    <!-- ─ Publish 기본값 (Forge.UI 와 동일 패턴) ─────────────────────────
+         FDD (런타임 가정, 작음):   dotnet publish -c Release -p:SelfContained=false
+         자체포함 (~70MB, 무런타임): dotnet publish -c Release -p:SelfContained=true -p:EnableCompressionInSingleFile=true
+         결과 EXE: src\Forge.Probe\bin\Release\net8.0-windows\win-x64\publish\Forge.Probe.exe -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>
