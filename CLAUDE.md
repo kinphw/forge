@@ -21,23 +21,26 @@
 
 ### 운용 전제
 
-- 모든 운용 PC 에 한/글 설치되어 있다고 가정. STAGE 전체가 한/글 COM
+- 모든 운용 PC 에 한/글 + .NET 8 Desktop Runtime 설치 가정. 전 단계가 한/글 COM
   (`HwpFrame.HwpObject`) 위에서 동작.
-- DRM(Fasoo 등) 환경 호환 — 신규 spawn 은 ShellExecute(`os.startfile`) 우선,
-  CoCreate fallback. (한 단계 자세한 내용은 [forge/hwp_session.py](forge/hwp_session.py) 의 docstring.)
+- DRM(Fasoo 등) 환경 호환 — 신규 spawn 은 ShellExecute(`Process.Start(UseShellExecute=true)`)
+  우선, CoCreate fallback. (한 단계 자세한 내용은
+  [src/Forge.Core/HwpSession.cs](src/Forge.Core/HwpSession.cs) 의 XML doc.)
 
 ---
 
 ## 2. 사용 모드 (사용자 관점)
 
-GUI 한 윈도우 안에 3 탭. 핵심 동선은 두 모드:
+WinForms GUI 한 윈도우 안에 4 탭(⓪ How to / ① 실시간 / ② 양식 / ③ 마크다운).
+핵심 동선은 두 모드:
 
 | 모드 | UI 위치 | 동작 |
 |---|---|---|
 | **배치** — md → 새 hwpx | 탭 ③ 마크다운 입력 | 사용자가 개조식 md 를 좌측에 입력 → "변환" 클릭 → 새 .hwpx 파일 생성 |
-| **실시간** — 활성 문서 정형 | 탭 ① 개별 작업 | 사용자가 한/글에서 작업 중인 문서에 룰 1개씩 적용 (단축키 또는 버튼) |
+| **실시간** — 활성 문서 정형 | 탭 ① 실시간(개별 작업) | 사용자가 한/글에서 작업 중인 문서에 룰 1개씩 적용 (단축키 또는 버튼) |
 
-탭 ② 는 보고서 양식 spec(폰트·여백·글머리 정의) 편집용 — 두 모드 공통 입력.
+탭 ⓪ 은 md 문법 안내(How to), 탭 ② 는 보고서 양식 spec(폰트·여백·글머리·박스
+카탈로그) 편집용 — 두 모드 공통 입력.
 
 ### 실시간 모드의 시스템 전역 단축키 (Win32 RegisterHotKey)
 
@@ -66,12 +69,12 @@ GUI 한 윈도우 안에 3 탭. 핵심 동선은 두 모드:
         │
         ▼
 ┌──────────────────────────────────┐
-│  formatter — md → 한/글 본문     │  forge/formatter/
-│  parser → 노드 → 렌더러 dispatch │  ★ 8 종 ElementRenderer 호출
+│  Formatter — md → 한/글 본문     │  src/Forge.Core/Formatter/
+│  Parser → 노드 → 렌더러 dispatch │  ★ 9 종 ElementRenderer 호출
 └──────────────┬───────────────────┘
                ▼
 ┌──────────────────────────────────┐
-│  linter — 정형 룰 호출           │  forge/linter/
+│  Linter — 정형 룰 호출           │  src/Forge.Core/Linter/
 │  자간조정·들여쓰기 정렬·자간      │  ★ 두 진입점:
 │  reset·어절 끌어올림 등           │   ─ batch: 문서 전체 순회
 │                                  │   ─ realtime: 현재 문단 / selection 영역
@@ -80,9 +83,9 @@ GUI 한 윈도우 안에 3 탭. 핵심 동선은 두 모드:
 ```
 
 원래 설계의 STAGE 3 polisher 는 별도 코드 패키지로 분리하지 않음 —
-자간·들여쓰기·자간 reset 등 룰들이 모두 동일한 `InitScan` / `GetText` /
-단일 문단 알고리즘 기반이라 [linter/](forge/linter/) 안에 자연스럽게
-흡수됨. 개념상 "단일 룰 폴리싱" 도 linter 의 한 동작이라 봄.
+자간·들여쓰기·자간 reset 등 룰들이 모두 동일한 캐럿 조작 알고리즘 기반이라
+[Linter/](src/Forge.Core/Linter/) 안에 자연스럽게 흡수됨. 개념상 "단일 룰
+폴리싱" 도 linter 의 한 동작이라 봄.
 
 ### 3.2 시각 spec authority — tool2
 
@@ -112,73 +115,98 @@ tool2 의 입력 directive 형식(`네모:내용` 등)은 의도적으로 미지
 ### 3.4 디렉토리 구조
 
 ```
-forge/                          ★ 단일 src 패키지
-├── __init__.py                 버전·앱명 단일 진실원본 (__version__ 등)
-├── com_helpers.py              set_param() — 5 단계 COM 패턴 1 줄 헬퍼
-├── hwp_session.py              ROT enum + DRM 호환 spawn + picker
-├── diagnose.py                 COM attach 진단 스크립트
-├── renderers/                  ★ 마크다운 요소 9 종 독립 렌더러
-│   ├── base.py                 ElementRenderer 추상 베이스
-│   ├── primitives.py           표·셀·폰트 공통 COM 헬퍼
-│   ├── metadata.py             대제목 + 부서·일자 stamp
-│   ├── section.py              Ⅰ./Ⅱ. 중제목
-│   ├── subsection.py           가./나. 소제목
-│   ├── bullet.py               □ ○ - · 본문 글머리
-│   ├── annotation.py           * ※ † 주석
-│   ├── conclusion.py           => 결론 박스
-│   ├── note_callout.py         [참고] 박스
-│   ├── attachment.py           [붙임] 페이지 break
-│   └── table.py                GFM 표 → 한/글 표 (tool2 행안부초록표 패턴)
-├── formatter/                  md → 한/글 본문 (배치 모드 진입점)
-│   ├── parser.py               md → MarkdownDocument 노드 트리
-│   ├── templates.py            ReportSpec / BulletStyle 등 양식 dataclass
-│   └── hwpx_writer.py          dispatcher + convert_selection_to_hwpx
-├── linter/                     정형 룰 (실시간 + 배치 후처리)
-│   ├── _range.py               selection_range / apply_per_paragraph
-│   ├── indent_align.py         들여쓰기 정렬 (bullet/annotation 라인)
-│   ├── kerning.py              자간조정 (어절 잘림 방지)
-│   └── squeeze.py              어절 끌어올림 (한 줄 압축)
-├── ui/                         stdlib Tkinter GUI
-│   ├── app.py                  메인 윈도우, hotkey 등록, picker
-│   ├── hotkeys.py              Win32 RegisterHotKey manager
-│   ├── hwp_picker.py           다중 인스턴스 선택 다이얼로그
-│   ├── icon.py · scrolled.py · tooltip.py    UI helper
-│   └── tabs/
-│       ├── realtime_tab.py     탭 ① 개별 작업 (룰 + 단축키)
-│       ├── settings_tab.py     탭 ② 기본정보 (양식 spec 편집)
-│       └── markdown_tab.py     탭 ③ 마크다운 입력 (배치 변환)
-└── rules/                      (예정) 룰셋 카탈로그 정형화 위치
+src/
+├── Forge.Core/                    ★ 도메인 코어 (GUI 무의존)
+│   ├── ComHelpers.cs              SetParam() — 5 단계 COM 패턴 1 줄 헬퍼
+│   ├── HwpSession.cs              ROT enum + DRM 호환 spawn + picker
+│   ├── UserSettings.cs            %APPDATA%\Forge\settings.json 영속화
+│   ├── Rgb.cs                     RGB 공용 타입 (System.Drawing 의존 회피)
+│   ├── ComLateBind.cs             Type.InvokeMember 래퍼
+│   ├── TypelibDispatch.cs         ITypeInfo dump + IDispatch.Invoke (sub-COM fallback)
+│   ├── Renderers/                 ★ 마크다운 요소 9 종 독립 렌더러
+│   │   ├── ElementRenderer.cs     추상 베이스
+│   │   ├── Primitives.cs          표·셀·폰트 공통 COM 헬퍼
+│   │   ├── MetadataRenderer.cs    대제목 + 부서·일자 stamp
+│   │   ├── SectionRenderer.cs     Ⅰ./Ⅱ. 중제목
+│   │   ├── SubsectionRenderer.cs  가./나. 소제목
+│   │   ├── BulletRenderer.cs      □ ○ - · 본문 글머리
+│   │   ├── AnnotationRenderer.cs  * ※ † 주석
+│   │   ├── ConclusionRenderer.cs  => 결론 박스
+│   │   ├── NoteCalloutRenderer.cs [참고] 박스
+│   │   ├── AttachmentRenderer.cs  [붙임] 페이지 break
+│   │   └── TableRenderer.cs       GFM 표 → 한/글 표 (tool2 행안부초록표 패턴)
+│   ├── Formatter/                 md → 한/글 본문 (배치 모드 진입점)
+│   │   ├── Parser.cs              md → MarkdownDocument 노드 트리 (YamlDotNet)
+│   │   ├── Node.cs                노드 record + NodeType enum
+│   │   ├── MarkdownDocument.cs
+│   │   └── HwpxWriter.cs          dispatcher + ConvertSelectionToHwpx
+│   ├── Linter/                    정형 룰 (실시간 + 배치 후처리)
+│   │   ├── Range.cs               SelectionRange / ApplyPerParagraph + GetPosBySet 우회
+│   │   ├── IndentAlign.cs         들여쓰기 정렬 (bullet/annotation 라인)
+│   │   ├── Kerning.cs             자간조정 (어절 잘림 방지)
+│   │   └── Squeeze.cs             어절 끌어올림 (한 줄 압축)
+│   ├── Templates/
+│   │   ├── ReportSpec.cs          양식 record (배치 모드 입력)
+│   │   ├── BulletStyle.cs · PageMargins.cs · TableStyle.cs
+│   │   └── ForgeTemplates.cs      ★ Forge 큐레이션 11 종 박스 카탈로그
+│   └── Interop/
+│       └── Interop.HwpObject.dll  한컴 typelib tlbimp PIA (typed cast 자산)
+├── Forge.Win32/                   Win32 P/Invoke 격리
+│   ├── NativeMethods.cs           RegisterHotKey / GetMessage / PostThreadMessage
+│   └── GlobalHotkeyManager.cs     백그라운드 STA 메시지 펌프 + BeginInvoke dispatch
+├── Forge.UI/                      WinForms 진입점 (Microsoft.WindowsDesktop.App)
+│   ├── Program.cs                 STA Main
+│   ├── MainForm.cs                4 탭 + status bar + footer + About
+│   ├── ForgeTheme.cs              디자인 토큰 (색·폰트·패딩)
+│   ├── ForgeIcon.cs               64×64 "F" 글리프 동적 합성
+│   ├── AppState.cs                HwpSession + ReportSpec + PreferredMoniker
+│   ├── HwpPickerForm.cs           다중 인스턴스 선택 다이얼로그
+│   └── Tabs/
+│       ├── HowToTab.cs            탭 ⓪ How to (md 문법 안내)
+│       ├── RealtimeTab.cs         탭 ① 실시간(개별 작업, 룰 + 단축키)
+│       ├── TemplatesTab.cs        탭 ② 양식(ForgeTemplates 카탈로그)
+│       ├── MarkdownTab.cs         탭 ③ 마크다운 입력(배치 변환)
+│       └── Actions.cs             9 ActionDef 카탈로그(단축키 ↔ 룰 매핑)
+└── Forge.Probe/                   콘솔 진단·검증 도구
+    └── Program.cs                 list / insert / convert / diag 서브커맨드
 
-run.pyw                         GUI 진입점 (`python run.pyw` / pythonw 자동 — 콘솔 없음)
-pyproject.toml                  project 메타 + 의존성 (forge.__version__ dynamic)
-.mcp.json                       dev MCP 서버 등록 (${FORGE_ROOT:-...} 환경변수)
+tests/
+└── Forge.Core.Tests/              xUnit (Parser 16 케이스)
 
-spec/                           ★ 입력·출력 사양
-├── markdown-spec.md            md 입력 spec
-└── renderer-spec.md            렌더러 8 종 spec (tool2 매핑 + COM 시퀀스)
+Forge.sln                          솔루션
+Directory.Build.props              ★ 버전 SSOT + 공통 빌드 설정 (net8.0-windows)
+.mcp.json                          dev MCP 서버 등록 (${FORGE_ROOT:-...} 환경변수)
+.vscode/                           launch.json · tasks.json · zip-publish.ps1
 
-dev-support/                    개발 시점 전용 (runtime 무관)
-├── hwp-api-mcp/                한컴 공식 HWP COM API 카탈로그 MCP
-└── tool2-spec-mcp/             tool2 spec MCP
+spec/                              ★ 입력·출력 사양 (언어 중립)
+├── markdown-spec.md               md 입력 spec
+└── renderer-spec.md               렌더러 9 종 spec (tool2 매핑 + COM 시퀀스)
 
-reference/                      gitignore — 개발자 로컬 (tool2 분해 등)
-scripts/                        extract / parse / schema 유틸
-tests/                          (예정)
+dev-support/                       개발 시점 전용 (runtime 무관)
+├── hwp-api-mcp/                   한컴 공식 HWP COM API 카탈로그 MCP
+└── tool2-spec-mcp/                tool2 spec MCP
+
+reference/                         gitignore — 개발자 로컬 (tool2 분해 등)
+publish/                           gitignore — `dotnet publish` 산출물
 ```
 
 ### 3.5 구현 스택
 
-| 영역 | 라이브러리 | 비고 |
+| 영역 | 라이브러리/도구 | 비고 |
 |---|---|---|
-| Python | 3.11+ | 환경 가변 (3.12 가 주 개발) |
-| 한/글 COM | `pywin32` (`win32com.client`) | 모든 stage 공통 |
-| GUI | stdlib `tkinter`/`ttk` (Windows 'vista' 테마) | 외부 의존 0 |
-| md front-matter | `pyyaml` | 메타데이터 파싱 |
-| 프로세스 감지 | `psutil` | 한/글 spawn 정책용 |
+| 런타임 | .NET 8 (`net8.0-windows`) | C# 12 + nullable enabled |
+| 한/글 COM | `dynamic` IDispatch + tlbimp PIA | typed cast 1차 + dynamic fallback |
+| GUI | WinForms (`Microsoft.WindowsDesktop.App`) | 외부 디자인 라이브러리 의존 0 |
+| md front-matter | `YamlDotNet` 17.x | 메타데이터 파싱 |
+| 전역 단축키 | Win32 `RegisterHotKey` (P/Invoke) | Forge.Win32 격리 |
+| 단위 테스트 | xUnit | Parser 등 |
+| 배포 | `dotnet publish PublishSingleFile fdd` | 단일 exe ~800KB (framework-dependent) |
 | dev MCP | Node.js + TypeScript | dev 전용 |
 
-5 단계 COM 패턴은 [forge/com_helpers.py](forge/com_helpers.py) 의 `set_param()`
-한 줄 헬퍼로 일괄 처리 — tool2 의 wrapper 411 개 안 만들고 한 헬퍼로 충분.
+5 단계 COM 패턴은 [src/Forge.Core/ComHelpers.cs](src/Forge.Core/ComHelpers.cs)
+의 `SetParam()` 한 줄 헬퍼로 일괄 처리 — tool2 의 wrapper 411 개 안 만들고
+한 헬퍼로 충분. 한컴 sub-COM(ParameterSet/Array) dispatch 한계는
+`TypelibDispatch.cs` (ITypeInfo dump + 직접 Invoke) 로 우회.
 
 ---
 
@@ -187,7 +215,7 @@ tests/                          (예정)
 | 사양 | 위치 | 권위 |
 |---|---|---|
 | md 입력 (글머리·메타·callout 등) | [spec/markdown-spec.md](spec/markdown-spec.md) | Forge 자체 |
-| 시각 렌더러 (8 종) | [spec/renderer-spec.md](spec/renderer-spec.md) | tool2 |
+| 시각 렌더러 (9 종) | [spec/renderer-spec.md](spec/renderer-spec.md) | tool2 |
 | 시각 디테일 (폰트·색상·여백 정확값) | tool2 디컴파일 (§3.2) | tool2 |
 
 ---
@@ -216,8 +244,8 @@ tests/                          (예정)
    ParameterSet 이름 확인.
 3. **파라미터 항목 확인** — `get_hwp_parameterset` 또는 `search_hwp_member`
    로 SetItem 키 정확명 확인 (오타 포함 — 예: `BorderCorlorLeft` sic).
-4. **`forge/renderers/primitives.py` 에 헬퍼 추가** (또는 기존 헬퍼 재사용).
-   코드 주석에 tool2 출처(파일:라인) 명시.
+4. **`src/Forge.Core/Renderers/Primitives.cs` 에 헬퍼 추가** (또는 기존 헬퍼
+   재사용). 코드 주석에 tool2 출처(파일:라인) 명시.
 5. **렌더러에서 헬퍼 호출** — primitives 만 사용. 렌더러는 액션명을 직접 알
    필요 없음.
 
@@ -266,6 +294,6 @@ tests/                          (예정)
 | [TASK_LOG.md](TASK_LOG.md) | 전역 작업 이력 (의미 있는 변경마다 append) |
 | [README.md](README.md) | 사용자용 사용법 요약 |
 | [spec/markdown-spec.md](spec/markdown-spec.md) | 개조식 md 입력 사양 |
-| [spec/renderer-spec.md](spec/renderer-spec.md) | 렌더러 8 종 spec (tool2 매핑) |
+| [spec/renderer-spec.md](spec/renderer-spec.md) | 렌더러 9 종 spec (tool2 매핑) |
 | [dev-support/hwp-api-mcp/](dev-support/hwp-api-mcp/) | HWP COM API 카탈로그 MCP |
 | [dev-support/tool2-spec-mcp/](dev-support/tool2-spec-mcp/) | tool2 spec MCP |

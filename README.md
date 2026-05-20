@@ -8,21 +8,29 @@
 
 ## 사용 모드 (2가지)
 
-사용자 관점에서 Forge 는 두 가지 동선만 제공한다. GUI 한 윈도우(`python run.pyw`)
-에서 모두 처리.
+사용자 관점에서 Forge 는 두 가지 동선만 제공한다. WinForms GUI 한 윈도우
+(`Forge.exe`) 에서 모두 처리.
 
 - **배치 모드 — md → 새 .hwpx**
   - 탭 ③ "마크다운 입력" 에 개조식 md 를 입력 → "변환" 클릭
   - 출력은 항상 .hwpx (정부 HWP 단계적 퇴출 정책 반영)
 
 - **실시간 모드 — 활성 문서 정형 조작**
-  - 탭 ① "개별 작업" 에서 룰 버튼 클릭, 또는 시스템 전역 단축키
-    (Ctrl+Shift+Q/W/A/S/D/Z/X) 호출
+  - 탭 ① "실시간(개별 작업)" 에서 룰 버튼 클릭, 또는 시스템 전역 단축키
+    (Ctrl+Shift+Q/W/A/S/D/F/Z/X) 호출
   - 한/글에 이미 열려 있는 .hwp/.hwpx 에 룰 1 개씩 적용
   - 출력은 입력 형식 보존 (저장은 사용자가 한/글에서)
 
-[사용자 키] → OS → [hotkeys.py 메시지 펌프] → [app.py: ACTIONS 등록] → [actions.ACTIONS.invoke] → [realtime_tab._run_*] → [linter/*.py 알고리즘] → [한/글 COM]
+[사용자 키] → OS → [Forge.Win32.GlobalHotkeyManager] → [Tabs/Actions.ACTIONS]
+→ [RealtimeTab dispatch] → [Forge.Core.Linter] → [한/글 COM]
 
+## 빌드·실행
+
+- 요구: .NET 8 SDK + Windows + 한/글 설치
+- 빌드: `dotnet build Forge.sln -c Release`
+- 실행: `dotnet run --project src/Forge.UI` (또는 빌드된 `Forge.exe` 직접 실행)
+- 단일파일 publish: VSCode 작업 `publish:fdd:zip` — `publish/Forge-v{ver}.zip`
+  안에 ≈800KB 단일 exe (framework-dependent; .NET 8 Desktop Runtime 필요)
 
 ## 형식 정책 (HWP / HWPX)
 
