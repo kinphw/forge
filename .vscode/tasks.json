@@ -2,6 +2,7 @@
   // VSCode 빌드/실행 태스크.
   // Ctrl+Shift+B 로 기본 빌드 태스크 실행.
   // launch.json 의 preLaunchTask 에서도 참조됨.
+  // Publish: Ctrl+Shift+P → "Tasks: Run Task" → publish:fdd / publish:self-contained
   "version": "2.0.0",
   "tasks": [
     {
@@ -33,6 +34,47 @@
       "args": ["test", "${workspaceFolder}/Forge.sln", "--nologo"],
       "problemMatcher": "$msCompile",
       "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "publish:fdd",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "publish",
+        "${workspaceFolder}/src/Forge.UI/Forge.UI.csproj",
+        "-c", "Release",
+        "-p:SelfContained=false",
+        "-o", "${workspaceFolder}/publish/fdd"
+      ],
+      "problemMatcher": "$msCompile",
+      "detail": ".NET 8 런타임 가정 (FDD) — ~820KB single-file exe"
+    },
+    {
+      "label": "publish:self-contained",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "publish",
+        "${workspaceFolder}/src/Forge.UI/Forge.UI.csproj",
+        "-c", "Release",
+        "-p:SelfContained=true",
+        "-p:EnableCompressionInSingleFile=true",
+        "-o", "${workspaceFolder}/publish/sc"
+      ],
+      "problemMatcher": "$msCompile",
+      "detail": "런타임 미설치 PC 용 — ~69MB single-file exe"
+    },
+    {
+      "label": "publish:fdd:zip",
+      "type": "process",
+      "command": "powershell",
+      "args": [
+        "-NoProfile", "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}/.vscode/zip-publish.ps1"
+      ],
+      "dependsOn": "publish:fdd",
+      "problemMatcher": [],
+      "detail": "publish:fdd 자동 실행 → Forge-v{version}.zip 압축"
     }
   ]
 }

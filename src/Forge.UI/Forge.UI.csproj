@@ -3,11 +3,11 @@
   <!--
     Forge.UI — WinForms 데스크톱 앱 진입점. tkinter app.py 등가물.
 
-    단일 파일 publish (5MB 목표):
-      dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=false
-    또는 self-contained (배포 PC 에 .NET 8 런타임 없을 때):
-      dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -p:PublishTrimmed=false
-      ※ WinForms + dynamic COM 사용 — Trimmed=true 불가.
+    publish 옵션은 csproj 에 박아둠 — 호출 시점에 `-p:...` 반복 없음.
+      FDD (런타임 가정, ~820KB):  dotnet publish -c Release -p:SelfContained=false
+      자체포함 (~69MB):           dotnet publish -c Release -p:SelfContained=true -p:EnableCompressionInSingleFile=true
+    또는 VSCode: Ctrl+Shift+P → Tasks: Run Task → publish:fdd / publish:self-contained.
+    ※ WinForms + dynamic COM — PublishTrimmed 사용 불가.
   -->
 
   <PropertyGroup>
@@ -20,6 +20,13 @@
     <Product>Forge</Product>
     <Company>kinphw</Company>
     <Copyright>Copyright (c) 2026 kinphw</Copyright>
+
+    <!-- ─ Publish 기본값 ───────────────────────────────────────────────
+         Publish* 속성은 publish 시점에만 적용 — 일반 build/run 에는 영향 없음.
+         RuntimeIdentifier 만 평시 build 폴더 구조에도 win-x64 segment 추가.   -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>
