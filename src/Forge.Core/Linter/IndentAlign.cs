@@ -11,6 +11,7 @@
 //   6. MoveNextParaBegin
 
 using System.Globalization;
+using Forge.Interop.HwpObject;  // PIA — typed IHwpObject.GetText(out string)
 
 namespace Forge.Core.Linter;
 
@@ -95,20 +96,36 @@ public static class IndentAlign
     /// <summary>
     /// 선택 영역의 텍스트.
     ///
-    /// ★ GetTextFile("UNICODE", "saveblock") 단일 경로 (dynamic 친화).
-    ///   한컴 공식 시그너처 (HwpAutomation_2504.txt p.23):
-    ///     long GetText(BSTR FAR* text)   ← text 가 out 파라미터
-    ///   → C# dynamic 으로 out 파라미터 BSTR 수신 불가. Python pywin32 만
-    ///     자동 (status, text) tuple wrap 으로 가능했던 것. C# 에서는 영구히
-    ///     InitScan+GetText 패턴 사용 불가 — 직접 원인으로 Q/W hotkey 모든 문단
-    ///     empty 판정 사고.
-    ///   해결: GetTextFile("UNICODE", "saveblock") — VARIANT 반환, selection 한정.
-    ///   ConvertSelectionToHwpx (HwpxWriter:343) 와 동일 우회.
-    ///   주의: 한컴 docs "개체 선택 상태에서는 동작하지 않는다" — 표/이미지/도형
-    ///   selection 케이스는 빈 문자열 반환 (acceptable).
+    /// ★ 1차: PIA typed cast — IHwpObject.GetText(out string) 직접 호출.
+    ///   PIA reflection 으로 확인: DispId 10019 = `int GetText(out String& Text)`.
+    ///   typed call 이라 out 파라미터 정상 수신 — InitScan+GetText 패턴 복원.
+    ///   메모리만 거치므로 한컴 보안 정책 다이얼로그 미발생 (Python 동등).
+    ///
+    /// ★ 2차 fallback: GetTextFile("UNICODE", "saveblock").
+    ///   PIA cast 가 한컴 IDispatch 의 E_NOINTERFACE 로 실패할 수 있음
+    ///   (Forge.Core.csproj 주석 참조 — sub-COM 에서 검증된 케이스).
+    ///   한컴 docs: "내부적으로 save/SaveBlockAction 호출 — 메모리에서 3~4번
+    ///   복사" → disk 접근으로 인식되어 보안 정책 다이얼로그 발동 가능.
     /// </summary>
     internal static string BlockChar(dynamic hwp)
     {
+        // 1차: PIA typed cast
+        try
+        {
+            if ((object)hwp is IHwpObject typed)
+            {
+                typed.InitScan(null, 0xff, null, null, null, null);
+                typed.GetText(out string text);
+                try { typed.ReleaseScan(); } catch { }
+                return text ?? "";
+            }
+        }
+        catch
+        {
+            try { hwp.ReleaseScan(); } catch { }
+        }
+
+        // 2차: GetTextFile (보안 정책 다이얼로그 부작용 가능성)
         try
         {
             return (hwp.GetTextFile("UNICODE", "saveblock") as string) ?? "";
