@@ -6,6 +6,7 @@
 //   중앙 TabControl (4 탭: ⓪ How to / ① 실시간 / ② 양식 / ③ 마크다운)
 //   하단 footer (버전 라벨)
 
+using System.Reflection;
 using Forge.Core;
 using Forge.UI.Tabs;
 
@@ -260,7 +261,13 @@ public partial class MainForm : Form
 
 public static class ForgeVersion
 {
-    public const string Version = "0.4.0";  // C# 포팅 (Python 0.3.3 후속)
+    // SSOT: Directory.Build.props 의 <Version>. 빌드 시 InformationalVersion
+    // attribute 로 박힘. 여기선 reflection 으로 읽기만 — manual sync 불필요.
+    // build metadata (`+commit-hash`) 가 있으면 잘라내고 semver 만 노출.
+    public static readonly string Version =
+        (typeof(ForgeVersion).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion ?? "0.0.0").Split('+')[0];
 }
 
 /// <summary>About 다이얼로그 — MessageBox 대신 단정한 폼.</summary>

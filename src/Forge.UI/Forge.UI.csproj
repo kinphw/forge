@@ -14,12 +14,9 @@
     <OutputType>WinExe</OutputType>
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>Forge</AssemblyName>
-    <Version>0.4.0</Version>
-    <FileVersion>0.4.0.0</FileVersion>
-    <AssemblyVersion>0.4.0.0</AssemblyVersion>
-    <Product>Forge</Product>
-    <Company>kinphw</Company>
-    <Copyright>Copyright (c) 2026 kinphw</Copyright>
+
+    <!-- Version 관련 항목은 Directory.Build.props 의 SSOT 에서 상속.
+         새 버전 bump 시 Directory.Build.props 의 <Version> 한 줄만 수정. -->
 
     <!-- ─ Publish 기본값 ───────────────────────────────────────────────
          Publish* 속성은 publish 시점에만 적용 — 일반 build/run 에는 영향 없음.

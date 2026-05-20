@@ -1,12 +1,12 @@
 # publish/fdd/Forge.exe -> publish/Forge-v{version}.zip
 # Called by .vscode/tasks.json publish:fdd:zip task.
 # (publish:fdd must run first via dependsOn so fdd/Forge.exe exists.)
-# Version is read from csproj <Version> as the single source of truth.
+# Version SSOT: Directory.Build.props 의 <Version> (모든 csproj 가 상속).
 
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$csproj = Join-Path $root 'src/Forge.UI/Forge.UI.csproj'
+$propsFile = Join-Path $root 'Directory.Build.props'
 $exe = Join-Path $root 'publish/fdd/Forge.exe'
 
 if (-not (Test-Path $exe)) {
@@ -14,8 +14,13 @@ if (-not (Test-Path $exe)) {
     exit 1
 }
 
-$xml = [xml](Get-Content $csproj)
-$ver = $xml.SelectSingleNode('//Version').InnerText
+$xml = [xml](Get-Content $propsFile)
+$verNode = $xml.SelectSingleNode('//Version')
+if (-not $verNode -or [string]::IsNullOrWhiteSpace($verNode.InnerText)) {
+    Write-Host "  [error] <Version> not found in $propsFile" -ForegroundColor Red
+    exit 1
+}
+$ver = $verNode.InnerText.Trim()
 $zip = Join-Path $root ('publish/Forge-v' + $ver + '.zip')
 
 if (Test-Path $zip) { Remove-Item $zip }
