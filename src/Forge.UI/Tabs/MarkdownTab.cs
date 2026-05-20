@@ -522,7 +522,8 @@ B사:  8,567 건 (2024.3~9 누적)
 
     private void OnFillSample(object? sender, EventArgs e)
     {
-        _mdInput.Text = SampleMd;
+        // WinForms TextBox 는 CRLF 만 줄바꿈으로 인식 — raw string 의 LF 정규화.
+        _mdInput.Text = SampleMd.ReplaceLineEndings("\r\n");
         _deptInput.Text = "테스트팀";
         Log("[샘플] 샘플 markdown 채움 (작성부서='테스트팀')");
     }
@@ -537,7 +538,7 @@ B사:  8,567 건 (2024.3~9 누적)
         if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;
         try
         {
-            _mdInput.Text = File.ReadAllText(dlg.FileName);
+            _mdInput.Text = File.ReadAllText(dlg.FileName).ReplaceLineEndings("\r\n");
             Log($"[열기] {dlg.FileName} ({new FileInfo(dlg.FileName).Length} bytes)");
         }
         catch (Exception ex)
