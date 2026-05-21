@@ -18,7 +18,7 @@ public partial class MainForm : Form
 
     private TabControl _tabs = null!;
     private Label _statusLabel = null!;
-    private Label _statusDot = null!;
+    private CircularStatusDot _statusDot = null!;
     private Button _hwpPickButton = null!;
     private RealtimeTab _realtimeTab = null!;
     private MarkdownTab _markdownTab = null!;
@@ -76,47 +76,47 @@ public partial class MainForm : Form
             BackColor = ForgeTheme.PanelBg,
             Padding = new Padding(ForgeTheme.PadLg, 8, ForgeTheme.PadLg, 8),
         };
-        // 좌측: 상태 dot + 라벨
-        _statusDot = new Label
+        // 좌측: 상태 dot + 라벨 — dot 은 OwnerDraw 둥근 원, 라벨은 BodyBold 로
+        // 위계 강조 (한/글 연결 여부가 한 눈에 들어와야 함).
+        _statusDot = new CircularStatusDot
         {
-            Text = "●",
-            AutoSize = true,
-            Font = new Font(ForgeTheme.Body().FontFamily, 12f),
-            ForeColor = ForgeTheme.TextMuted,
-            Location = new Point(ForgeTheme.PadLg, 12),
+            Size = new Size(12, 12),
+            Location = new Point(ForgeTheme.PadLg, 16),
+            DotColor = ForgeTheme.TextMuted,
         };
         _statusLabel = new Label
         {
             AutoSize = true,
-            Font = ForgeTheme.Body(),
+            Font = ForgeTheme.BodyBold(),
             ForeColor = ForgeTheme.TextPrimary,
-            Location = new Point(ForgeTheme.PadLg + 18, 14),
+            Location = new Point(ForgeTheme.PadLg + 18, 13),
             Text = "한/글 미연결",
         };
         statusBar.Controls.Add(_statusDot);
         statusBar.Controls.Add(_statusLabel);
 
-        // 우측 (right→left 순서): About / 한/글 선택 / 💾 설정 저장
+        // 우측 (right→left 순서): About / 한/글 선택 / 설정 저장
         _hwpPickButton = new Button { Text = "한/글 선택" };
-        ForgeTheme.StyleFlatButton(_hwpPickButton);
+        ForgeTheme.StyleFlatButton(_hwpPickButton, glyph: MdlIcon.Switch);
         _hwpPickButton.Click += OnHwpPick;
 
-        var saveBtn = new Button { Text = "💾 설정 저장" };
-        ForgeTheme.StyleFlatButton(saveBtn);
+        var saveBtn = new Button { Text = "설정 저장" };
+        ForgeTheme.StyleFlatButton(saveBtn, glyph: MdlIcon.Save);
         saveBtn.Click += (_, _) =>
         {
             FlushAllSettings();
-            _statusLabel.Text = "✔ 모든 설정 저장 완료 — %APPDATA%\\Forge\\settings.json";
+            _statusLabel.Text = "모든 설정 저장 완료 — %APPDATA%\\Forge\\settings.json";
             _statusLabel.ForeColor = ForgeTheme.Success;
         };
 
-        var aboutButton = new Button { Text = "?", MinimumSize = new Size(32, 30) };
-        ForgeTheme.StyleFlatButton(aboutButton);
+        var aboutButton = new Button { Text = "", MinimumSize = new Size(34, 30) };
+        ForgeTheme.StyleFlatButton(aboutButton, glyph: MdlIcon.Info);
+        aboutButton.Padding = new Padding(8, 4, 4, 4);   // icon-only 정렬
         aboutButton.Click += OnAbout;
 
         void RepositionRight()
         {
-            aboutButton.Location = new Point(statusBar.Width - 32 - ForgeTheme.PadLg, 7);
+            aboutButton.Location = new Point(statusBar.Width - aboutButton.Width - ForgeTheme.PadLg, 7);
             _hwpPickButton.Location = new Point(aboutButton.Left - _hwpPickButton.Width - 8, 7);
             saveBtn.Location = new Point(_hwpPickButton.Left - saveBtn.Width - 8, 7);
         }
@@ -127,19 +127,15 @@ public partial class MainForm : Form
 
         Controls.Add(statusBar);
 
-        // 중앙 탭
-        _tabs = new TabControl
-        {
-            Dock = DockStyle.Fill,
-            Font = ForgeTheme.Body(),
-            Padding = new Point(14, 6),
-        };
-        _realtimeTab = new RealtimeTab(State, UpdateStatus) { Text = "①  실시간 작업" };
-        _markdownTab = new MarkdownTab(State, UpdateStatus) { Text = "③  마크다운 입력" };
+        // 중앙 탭 — OwnerDraw 로 active tab underline + Accent 텍스트
+        _tabs = new TabControl { Dock = DockStyle.Fill };
+        ForgeTheme.StyleTabControl(_tabs);
+        _realtimeTab = new RealtimeTab(State, UpdateStatus) { Text = "실시간 작업" };
+        _markdownTab = new MarkdownTab(State, UpdateStatus) { Text = "마크다운 입력" };
 
-        _tabs.TabPages.Add(new HowToTab { Text = "⓪  How to?" });
+        _tabs.TabPages.Add(new HowToTab { Text = "How to?" });
         _tabs.TabPages.Add(_realtimeTab);
-        _tabs.TabPages.Add(new TemplatesTab(State) { Text = "②  양식삽입" });
+        _tabs.TabPages.Add(new TemplatesTab(State) { Text = "양식삽입" });
         _tabs.TabPages.Add(_markdownTab);
         _tabs.SelectedIndex = 1;  // 시작 탭 = 실시간
 
@@ -156,13 +152,13 @@ public partial class MainForm : Form
     {
         if (State.Hwp is null)
         {
-            _statusDot.ForeColor = ForgeTheme.TextMuted;
+            _statusDot.DotColor = ForgeTheme.TextMuted;
             _statusLabel.Text = "한/글 미연결 (첫 변환 시 자동 attach)";
             _statusLabel.ForeColor = ForgeTheme.TextMuted;
         }
         else
         {
-            _statusDot.ForeColor = ForgeTheme.Success;
+            _statusDot.DotColor = ForgeTheme.Success;
             _statusLabel.Text = $"한/글 연결: {State.Hwp.VersionName}  #{State.Hwp.InstanceIndex}{FileSuffix()}";
             _statusLabel.ForeColor = ForgeTheme.TextPrimary;
         }
@@ -284,23 +280,26 @@ public sealed class AboutForm : Form
         BackColor = ForgeTheme.PanelBg;
         Font = ForgeTheme.Body();
 
-        var flow = new FlowLayoutPanel
+        // 본문 = TopDown FlowLayout (DockFill), 하단 = Anchor=Right 정렬 버튼 패널.
+        // 직전 구조(닫기까지 같은 FlowLayout에 넣고 Anchor=Right) 는 FlowLayout
+        // 안에서 Anchor 가 무력해 닫기가 좌측에 박혔음 — 별도 Panel 로 분리.
+        var content = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
             Dock = DockStyle.Fill,
-            Padding = new Padding(24),
-            AutoSize = true,
+            Padding = new Padding(24, 24, 24, 8),
+            AutoSize = false,
         };
 
-        flow.Controls.Add(new Label
+        content.Controls.Add(new Label
         {
             Text = "Forge",
             Font = new Font(ForgeTheme.H1().FontFamily, 22f, FontStyle.Bold),
             ForeColor = ForgeTheme.Accent,
             AutoSize = true,
         });
-        flow.Controls.Add(new Label
+        content.Controls.Add(new Label
         {
             Text = $"v{ForgeVersion.Version}",
             Font = ForgeTheme.Body(),
@@ -308,7 +307,7 @@ public sealed class AboutForm : Form
             AutoSize = true,
             Margin = new Padding(0, 0, 0, 16),
         });
-        flow.Controls.Add(new Label
+        content.Controls.Add(new Label
         {
             Text = "한/글 보고서 자동 편집기\n" +
                    "개조식 markdown → .hwpx 변환 + 활성 문서 정형룰 적용\n",
@@ -318,22 +317,34 @@ public sealed class AboutForm : Form
             MaximumSize = new Size(380, 0),
             Margin = new Padding(0, 0, 0, 16),
         });
-        flow.Controls.Add(new Label
+        content.Controls.Add(new Label
         {
             Text = "작성자: kinphw\nhttps://github.com/kinphw/forge",
             Font = ForgeTheme.Small(),
             ForeColor = ForgeTheme.TextMuted,
             AutoSize = true,
-            Margin = new Padding(0, 0, 0, 16),
+            Margin = new Padding(0, 0, 0, 8),
         });
 
+        var buttonRow = new Panel
+        {
+            Dock = DockStyle.Bottom,
+            Height = 48,
+            Padding = new Padding(24, 8, 24, 16),
+            BackColor = ForgeTheme.PanelBg,
+        };
         var closeBtn = new Button { Text = "닫기", DialogResult = DialogResult.OK };
-        ForgeTheme.StyleFlatButton(closeBtn);
-        closeBtn.Anchor = AnchorStyles.Right;
-        flow.Controls.Add(closeBtn);
+        ForgeTheme.StyleFlatButton(closeBtn, accent: true);
+        closeBtn.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        closeBtn.Location = new Point(buttonRow.ClientSize.Width - 92, 8);
+        closeBtn.MinimumSize = new Size(80, 30);
+        buttonRow.Resize += (_, _) =>
+            closeBtn.Location = new Point(buttonRow.ClientSize.Width - closeBtn.Width - 24, 8);
+        buttonRow.Controls.Add(closeBtn);
         AcceptButton = closeBtn;
         CancelButton = closeBtn;
 
-        Controls.Add(flow);
+        Controls.Add(content);
+        Controls.Add(buttonRow);
     }
 }

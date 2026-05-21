@@ -182,28 +182,28 @@ B사:  8,567 건 (2024.3~9 누적)
             AutoSize = true,
             Padding = new Padding(0, ForgeTheme.Pad, 0, 0),
         };
-        var sampleButton = new Button { Text = "🧪 샘플 채우기" };
-        ForgeTheme.StyleFlatButton(sampleButton);
+        var sampleButton = new Button { Text = "샘플 채우기" };
+        ForgeTheme.StyleFlatButton(sampleButton, glyph: MdlIcon.Tag);
         sampleButton.Click += OnFillSample;
         sampleButton.Margin = new Padding(0, 0, 6, 0);
 
-        var clearButton = new Button { Text = "🧹 비우기" };
-        ForgeTheme.StyleFlatButton(clearButton);
+        var clearButton = new Button { Text = "비우기" };
+        ForgeTheme.StyleFlatButton(clearButton, glyph: MdlIcon.Clear);
         clearButton.Click += (_, _) => _mdInput.Clear();
         clearButton.Margin = new Padding(0, 0, 12, 0);
 
-        var openButton = new Button { Text = "📂 파일 열기" };
-        ForgeTheme.StyleFlatButton(openButton);
+        var openButton = new Button { Text = "파일 열기" };
+        ForgeTheme.StyleFlatButton(openButton, glyph: MdlIcon.OpenFile);
         openButton.Click += OnOpenFile;
         openButton.Margin = new Padding(0, 0, 12, 0);
 
-        _convertButton = new Button { Text = "🔄 변환 (md → hwpx)" };
-        ForgeTheme.StyleFlatButton(_convertButton, accent: true);
+        _convertButton = new Button { Text = "변환 (md → hwpx)" };
+        ForgeTheme.StyleFlatButton(_convertButton, accent: true, glyph: MdlIcon.Sync);
         _convertButton.Click += OnConvert;
         _convertButton.Margin = new Padding(0, 0, 8, 0);
 
-        _saveAsButton = new Button { Text = "💾 다른 이름으로 저장", Enabled = false };
-        ForgeTheme.StyleFlatButton(_saveAsButton);
+        _saveAsButton = new Button { Text = "다른 이름으로 저장", Enabled = false };
+        ForgeTheme.StyleFlatButton(_saveAsButton, glyph: MdlIcon.Save);
         _saveAsButton.Click += OnSaveAs;
 
         btnPanel.Controls.Add(sampleButton);

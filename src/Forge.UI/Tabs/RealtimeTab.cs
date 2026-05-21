@@ -226,8 +226,8 @@ public sealed class RealtimeTab : TabPage
             Height = 44,
             Margin = new Padding(0, 0, 0, ForgeTheme.Pad),
         };
-        var clearBtn = new Button { Text = "🧹 로그 비우기" };
-        ForgeTheme.StyleFlatButton(clearBtn);
+        var clearBtn = new Button { Text = "로그 비우기" };
+        ForgeTheme.StyleFlatButton(clearBtn, glyph: MdlIcon.Clear);
         clearBtn.Click += (_, _) => _logOutput.Clear();
         clearBtn.Location = new Point(0, 4);
         bar.Controls.Add(clearBtn);
@@ -251,8 +251,8 @@ public sealed class RealtimeTab : TabPage
         };
         bar.Controls.Add(_showIndividual);
 
-        var resetBtn = new Button { Text = "🔄 설정 초기화" };
-        ForgeTheme.StyleFlatButton(resetBtn);
+        var resetBtn = new Button { Text = "설정 초기화" };
+        ForgeTheme.StyleFlatButton(resetBtn, glyph: MdlIcon.Refresh);
         resetBtn.Click += (_, _) => OnResetSettings();
         resetBtn.Location = new Point(280, 4);
         bar.Controls.Add(resetBtn);
@@ -306,7 +306,7 @@ public sealed class RealtimeTab : TabPage
         // (AutoSize 가 부모(leftScroll) 폭에 자동 맞춰주지 못해 column 줄어드는 사고 회피)
         var box = new GroupBox
         {
-            Text = "🧪 현재 캐럿 또는 선택영역에 적용",
+            Text = "현재 캐럿 또는 선택영역에 적용",
             AutoSize = false,
             Height = 460,  // 11 rows × ~36 + separator × 2 + header
             MinimumSize = new Size(640, 0),  // column 합 + 여유 — 좁아지면 horizontal scroll
