@@ -1,16 +1,21 @@
-// Forge 가 선별·정의한 보고서 양식 카탈로그 (11종).
+// Forge 가 선별·정의한 보고서 양식 카탈로그 (17종).
 // tool2 (금감원 오피스 프로그램) 의 권위 spec 에서 forge 가 직접 선별 — fss/tool2
 // 의 양식 그대로가 아니라 forge 의 본 도구의 자체 양식 집합.
-// Python 원본 forge/templates/fss_tool2.py 의 `금감_TEMPLATES` 1:1 포팅.
 //
 // 카테고리 (forge 가 그룹화):
-//   - 헤더 (3):     메타헤더 / 중제목 / 소제목
-//   - 참고박스 (4): 꺽쇠박스 / 점선박스 / 참고박스_마크다운 / 블루진박스
+//   - 헤더 (5):     메타헤더 / 헤더_약식 / 중제목 / 중제목_그라인드 / 소제목
+//   - 목차 (1):     금감보고서목차 (Ⅰ./Ⅱ./Ⅲ. 자동 키-인)
+//   - 참고박스 (6): 꺽쇠박스 / 점선박스 / 요약박스 / 화살표박스_회색 / 참고박스_마크다운 / 블루진박스
 //   - 붙임박스 (1): 참고 (진파헤더)
 //   - 기호 (4):     당구장 ※ / 십자가 † / 꺽쇠 「」 / 꺽쇠 『』
 //
 // 활성 한/글 문서의 현재 커서 위치에 emit. placeholder 글자 (◆◆◆◆◆, ◎◎◎◎◎ 등)
 // 는 사용자가 한/글에서 직접 교체.
+//
+// 추가 4종 (헤더_약식·요약박스·중제목_그라인드·화살표박스_회색) 출처:
+//   reference/보고서양식_base_추가4종.hwpx — 1페이지 4 양식 분석.
+// 목차 출처:
+//   tool2 한컴라이브러리_decompiled.py:14716-14885 (금감보고서목차 + 금감보고서목차제목).
 
 using Forge.Core.Renderers;
 using static Forge.Core.Renderers.Primitives;
@@ -249,6 +254,270 @@ public static class ForgeTemplates
     }
 
     // ────────────────────────────────────────────────────────────────────
+    // 13. 헤더 약식 — 상하 진남 라인 (top/bottom 0.7mm #3E57A5), 좌우 없음
+    //     reference/보고서양식_base_추가4종.hwpx borderFillIDRef="10".
+    //     본문 HY헤드라인M 18pt 가운데정렬.
+    // ────────────────────────────────────────────────────────────────────
+    public static void 헤더_약식(dynamic hwp, string 내용 = "◆◆◆◆◆ 관련 쟁점 검토")
+    {
+        EnsureNewParagraph(hwp);
+        SetFontSize(hwp, 8);
+        BreakPara(hwp);
+        AlignPara(hwp, Align.Justify);
+        double w = 210.0 - (double)MeasurePageMarginMm(hwp);
+        MakeTable(hwp, new[] { w }, new[] { 11.2 });
+        // ★ 가운데 정렬 먼저 (borders/font 이전) — CellBorderFill 후에 ParagraphShapeAlignCenter
+        //   action 이 안 먹는 환경 있음 (테스트 사고). ParaShape SetParam 으로 AlignType=3
+        //   직접 + AlignPara action 한 번 더 (belt+suspenders).
+        ComHelpers.SetParam(hwp, "ParagraphShape", new Dictionary<string, object> { ["AlignType"] = 3 });
+        AlignPara(hwp, Align.Center);
+        SetTableBorderType(hwp, BorderType.Solid, BorderType.Solid, BorderType.None, BorderType.None);
+        SetTableBorderThickness(hwp, 9, 9, 6, 6);  // 9 ≈ 0.7mm
+        SetTableBorderColor(hwp, 62, 87, 165);     // #3E57A5
+        SetFont(hwp, "HY헤드라인M", 18);
+        AlignPara(hwp, Align.Center);  // borders/font 변경이 align 을 흔들 수 있어 한 번 더
+        InsertText(hwp, 내용);
+        ExitTableAndJustify(hwp);
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // 14. 요약박스 — 0.2mm 검정 테두리 + 라벤더 배경 (#EBDEF1) + 한컴윤고딕 14.5pt
+    //     reference borderFillIDRef="9". ◈ 마커 + 본문.
+    // ────────────────────────────────────────────────────────────────────
+    public static void 요약박스(dynamic hwp, string 내용 = "◆◆◆◆ 도입에 따른 ◇◇◇◇ 검토")
+    {
+        EnsureNewParagraph(hwp);
+        SetFontSize(hwp, 8);
+        BreakPara(hwp);
+        AlignPara(hwp, Align.Justify);
+        double w = 210.0 - (double)MeasurePageMarginMm(hwp);
+        MakeTable(hwp, new[] { w }, new[] { 16.2 });
+        SetTableBorderType(hwp, BorderType.Solid, BorderType.Solid, BorderType.Solid, BorderType.Solid);
+        SetTableBorderThickness(hwp, 3, 3, 3, 3);   // 3 ≈ 0.2mm
+        SetTableBorderColor(hwp, 0, 0, 0);
+        SetTableBg(hwp, 235, 222, 241);             // #EBDEF1
+        SetFont(hwp, "한컴 윤고딕 240", 14.5);
+        AlignPara(hwp, Align.Left);
+        InsertText(hwp, " ◈  ");
+        InsertText(hwp, 내용);
+        SetCellVerticalAlign(hwp, 1);               // 1=가운데
+        ExitTableAndJustify(hwp);
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // 15. 중제목 (그라인드) — 2행 1열, 1행 제목 + 2행 그라데이션 ribbon
+    //     reference borderFillIDRef="7" (gradient #3333A0 → #E3E2F2 linear 90°).
+    //     상단 셀: HY견명조 Bold 숫자 + HY헤드라인M 본문 16pt.
+    //     하단 셀: 1.3mm 얇은 그라데이션 ribbon + 0.5mm 바닥선.
+    // ────────────────────────────────────────────────────────────────────
+    public static void 중제목_그라인드(dynamic hwp, string 숫자 = "Ⅰ. ", string 내용 = "◆◆◆◆◆ 진행상황")
+    {
+        EnsureNewParagraph(hwp);
+        SetFontSize(hwp, 8);
+        BreakPara(hwp);
+        AlignPara(hwp, Align.Justify);
+        double w = 205.0 - (double)MeasurePageMarginMm(hwp);
+        MakeTable(hwp, new[] { w }, new[] { 9.3, 1.3 });
+
+        // 전체 셀 선택 → 외곽/내부 라인 모두 제거 (셀 사이 hairline 까지)
+        SelectAllCells(hwp);
+        SetTableBorderType(hwp, BorderType.None, BorderType.None, BorderType.None, BorderType.None);
+        SetTableInnerLineType(hwp, BorderType.None, BorderType.None);
+        hwp.HAction.Run("Cancel");
+        // ★ Cancel 후 캐럿 위치 불확정 — tool2 패턴: MovePos(106=열 시작) + MovePos(104=행 시작)
+        //   = 표의 (0,0) top-left 셀로 강제 복귀. 없으면 title 이 그라데이션 ribbon 셀로
+        //   들어가는 사고 (제목 row 1 에 가야 하는데 row 2 에 떨어짐).
+        hwp.MovePos(106, 0, 0);
+        hwp.MovePos(104, 0, 0);
+
+        // ── Row 1 (현재 caret): 제목 ──
+        SetFont(hwp, "HY견명조", 16);
+        hwp.HAction.Run("CharShapeBold");
+        InsertText(hwp, 숫자);
+        hwp.HAction.Run("CharShapeNormal");
+        SetFont(hwp, "HY헤드라인M", 16);
+        InsertText(hwp, 내용);
+
+        // ── Row 2 로 이동 → 그라데이션 ribbon ──
+        // ★ TableRightCellAppend (MoveTableRight) 는 행 끝에서 새 컬럼 append — 1×2 표에서
+        //   (0,0) → 사고. TableLowerCell 로 명시적 아래 이동.
+        hwp.HAction.Run("TableLowerCell");
+        // ★ ribbon 셀은 1.35mm 얇은 띠 — hwpx 참조 charPr 17 의 height=100 (=1pt). 글자크기
+        //   1pt 로 두지 않으면 default 폰트 (8pt) 가 셀 높이를 늘림 → ribbon 두께 망가짐.
+        SetFontSize(hwp, 1.0);
+        SetCellHeight(hwp, 1.35);    // 셀 높이 명시 고정 (글자크기만으로는 default 높이 잔존)
+        // 하단 테두리 없음 — 그라데이션 fill 만 (SelectAllCells 단계에서 이미 4변 None 처리됨)
+        SetTableBgGradient(hwp, 0x33, 0x33, 0xA0, 0xE3, 0xE2, 0xF2, 90);
+        ExitTableAndJustify(hwp);
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // 16. 화살표박스 (회색) — 얇은 검정 테두리 + 연회색 배경 (#F2F2F2) + 휴먼명조 15pt
+    //     reference borderFillIDRef="8". ➡ 마커로 결론·요지 강조.
+    // ────────────────────────────────────────────────────────────────────
+    public static void 화살표박스_회색(dynamic hwp,
+        string 내용 = "◆◆◆◆ 도입에 따른 ◇◇◇ 등 △△△을 검토")
+    {
+        EnsureNewParagraph(hwp);
+        SetFontSize(hwp, 8);
+        BreakPara(hwp);
+        AlignPara(hwp, Align.Justify);
+        double w = 208.0 - (double)MeasurePageMarginMm(hwp);   // 168mm @ 20mm margins
+        MakeTable(hwp, new[] { w }, new[] { 17.0 });
+        SetTableBorderType(hwp, BorderType.Solid, BorderType.Solid, BorderType.Solid, BorderType.Solid);
+        SetTableBorderThickness(hwp, 1, 1, 1, 1);    // 1 ≈ 0.12mm
+        SetTableBorderColor(hwp, 0, 0, 0);
+        SetTableBg(hwp, 242, 242, 242);              // #F2F2F2
+        SetFont(hwp, "휴먼명조", 15);
+        AlignPara(hwp, Align.Left);
+        InsertText(hwp, "➡ ");
+        InsertText(hwp, 내용);
+        ExitTableAndJustify(hwp);
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // 17. 금감보고서목차 — tool2 한컴라이브러리_decompiled.py:14760-14885 1:1 복제.
+    //
+    //     3×3 표 [43/64/43 mm × 6/6/50 mm]:
+    //       · 상단 2×3 영역 병합 → nested 9-col 띠 헤더 (금감보고서목차제목)
+    //       · 하단 1×3 영역 병합 → 본문 (탭점선 + Ⅰ/Ⅱ/Ⅲ 자동 키-인)
+    //     모든 액션·인자·순서를 tool2 그대로 — Forge primitive 가 tool2 메서드와 1:1 매핑
+    //     (표만들기→MakeTable, 표테두리타입→SetTableBorderType, 표오른쪽→MoveTableRight,
+    //      표테두리단일선→SetTableBorderSingleLine, 탭점선설정→SetDottedTab, 문장→InsertText).
+    // ────────────────────────────────────────────────────────────────────
+    public static void 금감보고서목차(dynamic hwp)
+    {
+        EnsureNewParagraph(hwp);
+        MakeTable(hwp, new[] { 43.0, 64.0, 43.0 }, new[] { 6.0, 6.0, 50.0 });
+        hwp.HAction.Run("TableCellBlock");
+        hwp.HAction.Run("TableCellBlockExtend");
+        hwp.HAction.Run("TableCellBlockExtend");
+        SetTableBorderType(hwp, BorderType.None, BorderType.None, BorderType.None, BorderType.None);
+        SetTableInnerLineType(hwp, BorderType.None, BorderType.None);
+        hwp.HAction.Run("Cancel");
+        hwp.MovePos(106, 0, 0);
+        hwp.MovePos(104, 0, 0);
+        MoveTableRight(hwp, 1);
+        hwp.HAction.Run("TableCellBlock");
+        hwp.HAction.Run("TableCellBlockExtend");
+        hwp.MovePos(103, 0, 0);
+        hwp.HAction.Run("TableMergeCell");
+        hwp.HAction.Run("ParagraphShapeAlignCenter");
+        금감보고서목차제목(hwp);
+        hwp.HAction.Run("Delete");
+        MoveTableRight(hwp, 2);
+        SetTableBorderSingleLine(hwp, BorderSide.Top, 6, 1);
+        SetTableBorderSingleLine(hwp, BorderSide.Left, 6, 1);
+        MoveTableRight(hwp, 2);
+        SetTableBorderSingleLine(hwp, BorderSide.Top, 6, 1);
+        SetTableBorderSingleLine(hwp, BorderSide.Right, 6, 1);
+        MoveTableRight(hwp, 1);
+        hwp.HAction.Run("TableCellBlock");
+        hwp.HAction.Run("TableCellBlockExtend");
+        MoveTableRight(hwp, 2);
+        hwp.HAction.Run("TableMergeCell");
+        SetTableBorderSingleLine(hwp, BorderSide.Left, 6, 1);
+        SetTableBorderSingleLine(hwp, BorderSide.Right, 6, 1);
+        SetTableBorderSingleLine(hwp, BorderSide.Bottom, 6, 1);
+        SetLineSpacing(hwp, 180);
+        SetFontSize(hwp, 9);
+        BreakPara(hwp);
+        SetFontSize(hwp, 16);
+        SetFontFace(hwp, "맑은 고딕");
+        hwp.HAction.Run("CharShapeNormal");
+        hwp.HAction.Run("CharShapeBold");
+        SetDottedTab(hwp, 98400);
+        InsertText(hwp, "Ⅰ. 추진 배경 ");
+        hwp.HAction.Run("InsertTab");
+        InsertText(hwp, " 1 ");
+        BreakPara(hwp);
+        SetFontSize(hwp, 4);
+        BreakPara(hwp);
+        SetFontSize(hwp, 16);
+        InsertText(hwp, "Ⅱ. 추진 방향 ");
+        hwp.HAction.Run("InsertTab");
+        InsertText(hwp, " 2 ");
+        BreakPara(hwp);
+        hwp.HAction.Run("CharShapeNormal");
+        InsertText(hwp, "  1. ");
+        hwp.HAction.Run("InsertTab");
+        InsertText(hwp, " 3 ");
+        BreakPara(hwp);
+        InsertText(hwp, "  2. ");
+        hwp.HAction.Run("InsertTab");
+        InsertText(hwp, " 4 ");
+        BreakPara(hwp);
+        InsertText(hwp, "    가. ");
+        hwp.HAction.Run("InsertTab");
+        InsertText(hwp, " 4 ");
+        BreakPara(hwp);
+        InsertText(hwp, "    나. ");
+        hwp.HAction.Run("InsertTab");
+        InsertText(hwp, " 5 ");
+        BreakPara(hwp);
+        InsertText(hwp, "    다. ");
+        hwp.HAction.Run("InsertTab");
+        InsertText(hwp, " 6 ");
+        BreakPara(hwp);
+        SetFontSize(hwp, 4);
+        BreakPara(hwp);
+        SetFontSize(hwp, 16);
+        hwp.HAction.Run("CharShapeBold");
+        InsertText(hwp, "Ⅲ. 향후 계획 ");
+        hwp.HAction.Run("InsertTab");
+        InsertText(hwp, " 7 ");
+        BreakPara(hwp);
+        SetFontSize(hwp, 9);
+        hwp.HAction.Run("MoveRight");
+        BreakPara(hwp);
+        hwp.HAction.Run("ParagraphShapeAlignJustify");
+    }
+
+    /// <summary>
+    /// 금감보고서목차 헤더 — nested 9-col 띠 표. tool2 한컴라이브러리_decompiled.py:14716-14757 1:1.
+    /// [0.1, 0.1, 0.1, 0.1, 32, 0.1, 0.1, 0.1, 0.1 mm × 9.3 mm].
+    ///   좌 4 칸 — 짙은회색(127) → 라이트회색(216) 띠 (TableResizeExLeft 로 확장)
+    ///   가운데 (32mm) — "목  차" HY헤드라인M 20pt
+    ///   우 4 칸 — 좌측 대칭.
+    /// </summary>
+    private static void 금감보고서목차제목(dynamic hwp)
+    {
+        hwp.HAction.Run("ParagraphShapeAlignCenter");
+        MakeTable(hwp,
+            new[] { 0.1, 0.1, 0.1, 0.1, 32.0, 0.1, 0.1, 0.1, 0.1 },
+            new[] { 9.3 });
+        SetCellMarginZero(hwp);
+        hwp.HAction.Run("TableCellBlock");
+        hwp.HAction.Run("TableCellBlockExtend");
+        hwp.HAction.Run("TableCellBlockExtend");
+        SetTableBorderType(hwp, BorderType.None, BorderType.None, BorderType.None, BorderType.None);
+        SetTableInnerLineType(hwp, BorderType.None, BorderType.None);
+        hwp.HAction.Run("Cancel");
+        hwp.MovePos(106, 0, 0);
+        hwp.MovePos(104, 0, 0);
+        SetTableBg(hwp, 127, 127, 127);
+        MoveTableRight(hwp, 1);
+        hwp.HAction.Run("TableResizeExLeft");
+        MoveTableRight(hwp, 1);
+        hwp.HAction.Run("TableResizeExLeft");
+        SetTableBg(hwp, 216, 216, 216);
+        MoveTableRight(hwp, 2);
+        SetFontFace(hwp, "HY헤드라인M");
+        SetFontSize(hwp, 20);
+        hwp.HAction.Run("ParagraphShapeAlignCenter");
+        InsertText(hwp, "목  차");
+        SetTableBorderType(hwp, BorderType.Solid, BorderType.Solid, BorderType.Solid, BorderType.Solid);
+        MoveTableRight(hwp, 2);
+        SetTableBg(hwp, 216, 216, 216);
+        hwp.HAction.Run("TableResizeExLeft");
+        MoveTableRight(hwp, 1);
+        hwp.HAction.Run("TableResizeExLeft");
+        MoveTableRight(hwp, 1);
+        SetTableBg(hwp, 127, 127, 127);
+        hwp.HAction.Run("MoveRight");
+    }
+
+    // ────────────────────────────────────────────────────────────────────
     // 9~12. 기호 — 단순 InsertText 1~2 글자
     // ────────────────────────────────────────────────────────────────────
     public static void 당구장(dynamic hwp) => InsertText(hwp, "※");
@@ -304,30 +573,41 @@ public static class ForgeTemplates
         // ── 헤더 ──
         new(1, "헤더", h => 메타헤더((dynamic)h),
             "메타헤더 (제목+팀+일자)", "노란박스 + 부서·일자 stamp (샘플값)"),
-        new(2, "헤더", h => 금감원페이지중제목((dynamic)h),
+        new(2, "헤더", h => 헤더_약식((dynamic)h),
+            "헤더 (약식)", "상하 진남선 (#3E57A5) + HY헤드라인M 18pt 가운데"),
+        new(3, "헤더", h => 금감원페이지중제목((dynamic)h),
             "중제목 (Ⅰ./Ⅱ.)", "파란밑줄 HY견명조+HY헤드라인M"),
-        new(3, "헤더", h => 금감원페이지소제목((dynamic)h),
+        new(4, "헤더", h => 중제목_그라인드((dynamic)h),
+            "중제목 (그라데이션)", "제목 + 하단 1.3mm 그라데이션 ribbon (#3333A0→#E3E2F2)"),
+        new(5, "헤더", h => 금감원페이지소제목((dynamic)h),
             "소제목 (가./나.)", "라벤더 마커+본문 2셀"),
+        // ── 목차 ──
+        new(6, "목차", h => 금감보고서목차((dynamic)h),
+            "목차 박스", "Ⅰ. 추진 배경 / Ⅱ. 추진 방향 / Ⅲ. 향후 계획 자동 키-인"),
         // ── 참고박스 ──
-        new(4, "참고박스", h => 금감원페이지꺽쇠박스((dynamic)h),
+        new(7, "참고박스", h => 금감원페이지꺽쇠박스((dynamic)h),
             "꺽쇠박스", "〈◈◈◈ 관련 현황〉 3셀 헤더"),
-        new(5, "참고박스", h => 금감원페이지점선박스((dynamic)h),
+        new(8, "참고박스", h => 금감원페이지점선박스((dynamic)h),
             "점선박스", "⇨ 결론 점선박스 민트"),
-        new(6, "참고박스", h => 참고박스_마크다운((dynamic)h),
+        new(9, "참고박스", h => 요약박스((dynamic)h),
+            "요약박스", "◈ 마커 + 라벤더 배경 (#EBDEF1) + 한컴윤고딕 14.5pt"),
+        new(10, "참고박스", h => 화살표박스_회색((dynamic)h),
+            "화살표박스 (회색)", "➡ 마커 + 연회색 배경 (#F2F2F2) + 휴먼명조 15pt"),
+        new(11, "참고박스", h => 참고박스_마크다운((dynamic)h),
             "참고박스 (마크다운 변환)", "md [참고] 점선박스 + ※(참고)"),
-        new(7, "참고박스", h => 금감보고서블루진박스((dynamic)h),
+        new(12, "참고박스", h => 금감보고서블루진박스((dynamic)h),
             "블루진박스", "진남 헤더 + 12pt Bold + 본문"),
         // ── 붙임박스 ──
-        new(8, "붙임박스", h => 금감원페이지참고((dynamic)h),
+        new(13, "붙임박스", h => 금감원페이지참고((dynamic)h),
             "참고 (진파헤더)", "진파 라벨 + HY헤드라인M 15pt 본문"),
         // ── 기호 ──
-        new(9,  "기호", h => 당구장((dynamic)h),
+        new(14, "기호", h => 당구장((dynamic)h),
             "당구장 ※", "주석 마커 ※ 1 글자"),
-        new(10, "기호", h => 십자가((dynamic)h),
+        new(15, "기호", h => 십자가((dynamic)h),
             "십자가 †", "보조 주석 마커 † 1 글자"),
-        new(11, "기호", h => 꺽쇠_홑((dynamic)h),
+        new(16, "기호", h => 꺽쇠_홑((dynamic)h),
             "꺽쇠 「」 (홑)", "맑은 고딕 「」, 캐럿은 」 뒤"),
-        new(12, "기호", h => 꺽쇠_겹((dynamic)h),
+        new(17, "기호", h => 꺽쇠_겹((dynamic)h),
             "꺽쇠 『』 (겹)", "맑은 고딕 『』, 책·문헌 제목"),
     };
 }

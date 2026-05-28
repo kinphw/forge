@@ -472,6 +472,88 @@ public static class Primitives
     }
     public static void SetTableBg(dynamic hwp, Rgb rgb) => SetTableBg(hwp, rgb.R, rgb.G, rgb.B);
 
+    /// <summary>
+    /// 현재 셀 배경을 2색 선형 그라데이션으로. tool2 `표배경그라데이션('Linear', angle, ...)` 1:1.
+    /// 출처: tool2 한컴라이브러리_decompiled.py:752-823.
+    ///
+    /// angle 단위: 도. 90 = 가로 (왼→오), 0 = 세로 (위→아래).
+    /// 실패 시 (sub-PS dispatch 불가) 두 색의 중간 (시각적으로 그라데이션의 평균) 단색 fallback.
+    ///
+    /// 구현: tool2 패턴 그대로 — CreateAction + CreateSet + CreateItemSet('FillAttr',
+    /// 'DrawFillAttr') 로 fresh sub-PS 생성 + SetItem. dot-property + HParameterSet.HCellBorderFill.FillAttr
+    /// 패턴 (SetTableBg 가 쓰는 것) 은 기존 sub-PS 재사용이라 GradBrush 와 WinBrush 가 충돌
+    /// → 그라데이션 안 먹는 사고. tool2 와 같이 fresh CreateItemSet 필수.
+    /// 배열 (GradationIndexPos / GradationColor) 의 SetItem 은 dynamic 으로 1차, 실패 시
+    /// TypelibDispatch 로 2차.
+    /// </summary>
+    public static void SetTableBgGradient(dynamic hwp,
+        int r1, int g1, int b1, int r2, int g2, int b2, int angle = 90)
+    {
+        try
+        {
+            var color1 = hwp.RGBColor(r1, g1, b1);
+            var color2 = hwp.RGBColor(r2, g2, b2);
+
+            dynamic action = hwp.CreateAction("CellFill");
+            dynamic pset = action.CreateSet();
+            action.GetDefault(pset);
+
+            dynamic F = pset.CreateItemSet("FillAttr", "DrawFillAttr");
+            F.SetItem("Type", hwp.BrushType("NullBrush|GradBrush"));
+            F.SetItem("GradationType", hwp.Gradation("Linear"));
+            F.SetItem("GradationCenterX", 0);
+            F.SetItem("GradationCenterY", 0);
+            F.SetItem("GradationAngle", angle);
+            F.SetItem("GradationStep", 100);
+
+            SetGradationArray(F, "GradationIndexPos", Enumerable.Repeat<object>(0, 10).ToArray());
+
+            F.SetItem("GradationStepCenter", 50);
+            F.SetItem("GradationColorNum", 2);
+
+            var colors = new object[10];
+            colors[0] = color1;
+            colors[1] = color2;
+            for (int i = 2; i < 10; i++) colors[i] = color1;
+            SetGradationArray(F, "GradationColor", colors);
+
+            F.SetItem("GradationBrush", 1);
+            action.Execute(pset);
+        }
+        catch
+        {
+            // 평균색 fallback — 단색 r1 보다 시각적 충격 작음
+            SetTableBg(hwp, (r1 + r2) / 2, (g1 + g2) / 2, (b1 + b2) / 2);
+        }
+    }
+
+    /// <summary>
+    /// FillAttr sub-PS 의 10-element int 배열을 채운다. CreateItemArray 후 SetItem 10회.
+    /// dynamic 우선, 실패 시 TypelibDispatch fallback (MakeTable 의 ColWidth 패턴과 동일).
+    /// </summary>
+    private static void SetGradationArray(dynamic F, string arrayName, object[] values)
+    {
+        object Fobj = F;
+        object? arr = null;
+        try { arr = F.CreateItemArray(arrayName, values.Length); }
+        catch { /* dynamic 실패 — TypelibDispatch 시도 */ }
+        if (arr is null)
+        {
+            try
+            {
+                TypelibDispatch.InvokeMethodViaTypeInfo(Fobj, "CreateItemArray", arrayName, values.Length);
+                arr = TypelibDispatch.GetPropertyViaTypeInfo(Fobj, arrayName);
+            }
+            catch { /* sub-PS 가 ITypeInfo 안 줌 — 최종 실패 */ }
+        }
+        if (arr is null) throw new InvalidOperationException($"FillAttr.{arrayName} 생성 실패");
+        for (int i = 0; i < values.Length; i++)
+        {
+            try { ((dynamic)arr).SetItem(i, values[i]); }
+            catch { TypelibDispatch.SetIndexedItemViaTypeInfo(arr, "Item", i, values[i]); }
+        }
+    }
+
     /// <summary>단일 변에만 실선 적용. tool2 `표테두리단일선('상', 1, 1)` 등가.</summary>
     public static void SetTableBorderSingleLine(dynamic hwp, BorderSide side, int width, int lineType = 1)
     {
@@ -561,6 +643,63 @@ public static class Primitives
     }
 
     // ────────────────────────────────────────────────────────────────────
+    // 선택 영역 텍스트 추출 — 보안 정책 다이얼로그 회피 (★)
+    // ────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// 현재 선택 블록의 plain text. tool2 `블록텍스트` (decompiled.py:1201-1222) 1:1 —
+    /// InitScan(option, Range=0xFF) + GetText() 루프.
+    ///
+    /// ★ 보안 정책 회피: GetTextFile("UNICODE","saveblock") 은 내부적으로 SaveBlockAction
+    ///   (디스크 save) 을 거쳐 한컴 보안 정책이 "보안 정책상 사용할 수 없는 기능입니다."
+    ///   로 차단함. RegisterModule 승인 모듈 미등록 머신에선 막힘.
+    ///   InitScan/GetText 는 순수 메모리 스캔이라 다이얼로그 미발생.
+    ///
+    /// ★ 다중 문단 대응: GetText 는 한 번에 한 chunk 만 반환 — state ∈ {2,3} 동안 반복 누적.
+    ///   (IndentAlign.BlockChar 는 단일 문단용으로 1회만 읽음. 여기선 전체 선택을 읽어야 함.)
+    ///
+    /// PIA typed cast (IHwpObject.GetText(out string) → int state) 1차. 실패 시에만
+    /// GetTextFile fallback (보안 다이얼로그 가능 — PIA cast 가 되는 환경에선 도달 안 함).
+    /// </summary>
+    public static string GetSelectionText(dynamic hwp)
+    {
+        try
+        {
+            if ((object)hwp is IHwpObject typed)
+            {
+                typed.InitScan(null, 0xff, null, null, null, null);
+                var sb = new System.Text.StringBuilder();
+                try
+                {
+                    // state: 2=본문 텍스트, 3=표/개체 내 텍스트 (계속). 그 외 = 스캔 끝.
+                    // guard — 비정상 상태에서 무한 루프 방지.
+                    for (int i = 0; i < 100000; i++)
+                    {
+                        int state = typed.GetText(out string chunk);
+                        if (state == 2 || state == 3)
+                            sb.Append(chunk);
+                        else
+                            break;
+                    }
+                }
+                finally
+                {
+                    try { typed.ReleaseScan(); } catch { }
+                }
+                return sb.ToString();
+            }
+        }
+        catch
+        {
+            try { hwp.ReleaseScan(); } catch { }
+        }
+
+        // fallback — PIA cast 불가 환경 (보안 다이얼로그 발동 가능)
+        try { return (hwp.GetTextFile("UNICODE", "saveblock") as string) ?? ""; }
+        catch { return ""; }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
     // tool2 레거시 helper — 디컴파일 메서드 1:1 (templates_tab 등에서 호출)
     // ────────────────────────────────────────────────────────────────────
 
@@ -576,6 +715,25 @@ public static class Primitives
         {
             hwp.HAction.GetDefault("TablePropertyDialog", hwp.HParameterSet.HShapeObject.HSet);
             hwp.HParameterSet.HShapeObject.ShapeTableCell.VertAlign = direction;
+            hwp.HAction.Execute("TablePropertyDialog", hwp.HParameterSet.HShapeObject.HSet);
+        }
+        catch { /* 셀 외 위치에서 호출 가능 — 무시 */ }
+    }
+
+    /// <summary>
+    /// 현재 셀 높이 (mm) 고정. tool2 `셀높이지정(크기)` 1:1 (line 442-450).
+    /// 공식 한컴디벨로퍼 권위 패턴: TablePropertyDialog + ShapeTableCell.Height (HWPUNIT).
+    /// mm ↔ HWPUNIT: 1mm ≈ 283 HWPUNIT (디벨로퍼 예제의 /283 역방향).
+    /// ShapeType=3 (셀), ShapeCellSize=1 (셀 크기 고정) 먼저 SetItem.
+    /// </summary>
+    public static void SetCellHeight(dynamic hwp, double mm)
+    {
+        try
+        {
+            hwp.HAction.GetDefault("TablePropertyDialog", hwp.HParameterSet.HShapeObject.HSet);
+            hwp.HParameterSet.HShapeObject.HSet.SetItem("ShapeType", 3);
+            hwp.HParameterSet.HShapeObject.HSet.SetItem("ShapeCellSize", 1);
+            hwp.HParameterSet.HShapeObject.ShapeTableCell.Height = ComHelpers.MmToHwp(hwp, mm);
             hwp.HAction.Execute("TablePropertyDialog", hwp.HParameterSet.HShapeObject.HSet);
         }
         catch { /* 셀 외 위치에서 호출 가능 — 무시 */ }
@@ -660,21 +818,42 @@ public static class Primitives
         }
     }
 
-    /// <summary>탭 점선 설정. tool2 `탭점선설정(position)`.</summary>
+    /// <summary>
+    /// 탭 점선 설정. tool2 `탭점선설정(position)` 1:1 — decompiled.py:668-679.
+    /// position 은 URC (HWPUNIT). 한 페이지 안쪽 끝 ≈ 98400 (A4 inner @ default margin).
+    ///
+    /// 구조: ParagraphShape → TabDef sub-PS → TabItem 3-int 배열.
+    ///   배열 [0]=위치, [1]=채울 모양 (3=점선), [2]=탭 종류 (1=오른쪽 정렬).
+    /// 한컴 API doc: TabDef.TabItem 은 PIT_ARRAY of PIT_I, 한 탭 = 3 ints 묶음.
+    ///
+    /// ★ HAction.GetDefault + HParameterSet.HParaShape.HSet 패턴 (다른 SetParam 들과 동일) —
+    ///   CreateAction 패턴은 별도 action 객체의 Execute 가 캐럿 컨텍스트를 흐트러뜨려
+    ///   목차박스에서 후속 InsertText 가 표 밖에 떨어지는 사고 발생.
+    /// </summary>
     public static void SetDottedTab(dynamic hwp, int position)
     {
         try
         {
             hwp.HAction.GetDefault("ParagraphShape", hwp.HParameterSet.HParaShape.HSet);
-            var ps = hwp.HParameterSet.HParaShape;
-            ps.CreateItemArray("Tab", 1);
-            var tab = ps.Tab;
-            // Python 원본: tab.SetItem(0, {"Pos": int(position), "Leader": 1, "Type": 0})
-            // 한/글 COM 의 nested ParameterSet — dict 로 set 가능.
-            tab.SetItem(0, new Dictionary<string, object>
+            dynamic sub = hwp.HParameterSet.HParaShape.CreateItemSet("TabDef", "TabDef");
+
+            object? arr = null;
+            try { arr = sub.CreateItemArray("TabItem", 3); }
+            catch { /* dynamic 실패 — TypelibDispatch fallback */ }
+            if (arr is null)
             {
-                ["Pos"] = position, ["Leader"] = 1, ["Type"] = 0,
-            });
+                object subObj = sub;
+                TypelibDispatch.InvokeMethodViaTypeInfo(subObj, "CreateItemArray", "TabItem", 3);
+                arr = TypelibDispatch.GetPropertyViaTypeInfo(subObj, "TabItem");
+            }
+            if (arr is null) return;
+
+            object[] items = { position, 3, 1 };  // [위치, 채울 모양=점선, 탭 종류=오른쪽]
+            for (int i = 0; i < items.Length; i++)
+            {
+                try { ((dynamic)arr).SetItem(i, items[i]); }
+                catch { TypelibDispatch.SetIndexedItemViaTypeInfo(arr, "Item", i, items[i]); }
+            }
             hwp.HAction.Execute("ParagraphShape", hwp.HParameterSet.HParaShape.HSet);
         }
         catch { /* 무시 */ }

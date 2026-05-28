@@ -333,18 +333,19 @@ public static class HwpxWriter
         var sel = Linter.Range.SelectionRange(hwpObj);
         log($"[md-convert] selection_range = {(sel.HasValue ? sel.Value.ToString() : "null")}");
 
-        // 1) GetTextFile("UNICODE", "saveblock") — 선택 블록만 export
-        //    "UNICODE" — 서식 무시, 모든 문자 무손실.
-        //    "saveblock" — selection 블록 한정.
+        // 1) 선택 블록 텍스트 추출 — InitScan/GetText (메모리 스캔).
+        //    ★ GetTextFile("UNICODE","saveblock") 직접 호출 금지 — 내부 SaveBlockAction 이
+        //      한컴 보안 정책("보안 정책상 사용할 수 없는 기능입니다.") 을 발동시킴.
+        //      GetSelectionText 가 tool2 블록텍스트(InitScan/GetText) 로 우회 + 다중 문단 누적.
         //    한계: 개체 선택 상태 (표/이미지/도형) 에서는 동작 안 함.
         string raw;
         try
         {
-            raw = (string)hwp.GetTextFile("UNICODE", "saveblock") ?? "";
+            raw = GetSelectionText(hwp);
         }
         catch (Exception e)
         {
-            log($"[md-convert] GetTextFile 호출 실패: {e.Message}");
+            log($"[md-convert] 선택 텍스트 추출 실패: {e.Message}");
             throw new NoSelectionException(
                 "선택 영역 텍스트 추출 실패 — 한/글 selection 상태를 확인해 주세요.", e);
         }

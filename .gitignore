@@ -120,3 +120,6 @@ reference/
 # tool2-spec-mcp seed (extract_to_sql.py 로 재생성 — 큰 SQL 파일)
 # ─────────────────────────────────────────────────────────────────────
 dev-support/tool2-spec-mcp/scripts/seed.sql
+
+*.csv
+*.csd
