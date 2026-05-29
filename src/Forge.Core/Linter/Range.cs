@@ -84,7 +84,13 @@ public static class Range
     {
         log ??= NoopLog;
 
-        var sel = SelectionRange(hwp);
+        // ★ hwp 가 dynamic 이라 SelectionRange(hwp) 를 그대로 부르면 호출 site 가 dynamic
+        //   dispatch → 반환된 Nullable<(CaretPos,CaretPos)> 이 런타임 바인더에서 underlying
+        //   ValueTuple 로 unwrap 됨 → sel.Value 접근 시 RuntimeBinderException ('Value' 없음).
+        //   선택 영역이 있을 때만 .Value 에 도달해 터짐 (단일 캐럿은 null 분기로 회피).
+        //   object 로 cast 해 정적 호출 → 반환 타입 (..)? 보존. (HwpxWriter 와 동일 패턴.)
+        object hwpObj = hwp;
+        var sel = SelectionRange(hwpObj);
         if (sel is null)
         {
             log("  [range] 단일 캐럿 — 현재 문단만");
