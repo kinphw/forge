@@ -43,14 +43,20 @@ public static class IndentAlign
 
     private static readonly HashSet<char> NumberTokenChars = new() { '.', '(', ')', '[', ']', '{', '}', '-' };
 
+    /// <summary>주석 마커 전용 — ※ † 와 모든 글자가 '*' 인 워드 (*/**/***).</summary>
+    public static bool IsAnnotationMarker(string word)
+    {
+        if (string.IsNullOrEmpty(word)) return false;
+        if (AnnotationFixed.Contains(word)) return true;
+        if (word.All(ch => ch == '*')) return true;
+        return false;
+    }
+
     public static bool IsBulletOrAnnotationMarker(string word)
     {
         if (string.IsNullOrEmpty(word)) return false;
         if (BulletMarkers.Contains(word)) return true;
-        if (AnnotationFixed.Contains(word)) return true;
-        // 모든 글자가 '*' 인 경우 (annotation ref: */**/***)
-        if (word.All(ch => ch == '*')) return true;
-        return false;
+        return IsAnnotationMarker(word);
     }
 
     public static bool IsSectionMarker(string word)
@@ -259,14 +265,20 @@ public static class IndentAlign
 
         int iters = 0;
         bool found = false;
+        bool annMarkerSeen = false;   // 주석 마커(* ※ †) 를 이미 지났나 (sticky)
         CaretPos? lastPos = null;
         while (iters < 30)
         {
-            if (IsBodyWord(c2))
+            // ★ 주석 마커(*/※/†) 직후의 워드는 번호 토큰((1) 등) 이라도 본문 시작점으로 간주.
+            //   '* (1) 전산원장' → '*' 만 지나 '(1)' 에서 indent (한 단계만 들어감).
+            //   글머리(□○-·)는 annMarkerSeen=false 라 기존대로 번호 토큰을 더 건너뛰어
+            //   본문(전산원장)까지 들어감 — 동작 변화 없음.
+            if (IsBodyWord(c2) || (annMarkerSeen && !string.IsNullOrWhiteSpace(c2)))
             {
                 found = true;
                 break;
             }
+            if (IsAnnotationMarker(c2)) annMarkerSeen = true;
             hwp.Run("Cancel");
             var curPos = Range.GetCaretPos(hwp);
             hwp.Run("MoveSelNextWord");
@@ -280,7 +292,7 @@ public static class IndentAlign
             c2Raw = BlockChar(hwp);
             c2 = c2Raw.Length > 0 ? c2Raw[..^1] : "";
             iters++;
-            log($"  [body-search#{iters}] raw={c2Raw} after[:-1]={c2} body={IsBodyWord(c2)}");
+            log($"  [body-search#{iters}] raw={c2Raw} after[:-1]={c2} body={IsBodyWord(c2)} annSeen={annMarkerSeen}");
         }
 
         log($"  [loop] body 발견={found} (iters={iters})");
