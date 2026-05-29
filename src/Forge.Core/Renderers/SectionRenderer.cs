@@ -1,5 +1,7 @@
 // 중제목 (Ⅰ./Ⅱ./...).
-// tool2 매핑: `금감원페이지중제목(숫자, 내용)` (한컴라이브러리.py:14260-14284)
+// 마크다운 변환의 기본 중제목 = 그라데이션 ribbon 스타일 (양식삽입 #4 중제목_그라인드 등가).
+// 폰트는 spec (SectionNumberFont/SectionTitleFont — RealtimeTab 오버라이드 SSOT) 존중,
+// 레이아웃만 그라데이션. 파란밑줄 스타일(구 #3 금감원페이지중제목)은 양식삽입 버튼으로 잔존.
 
 using Forge.Core.Templates;
 using static Forge.Core.Renderers.Primitives;
@@ -19,7 +21,10 @@ public sealed class SectionRenderer : ElementRenderer
 
     public static string ToRoman(int n) => RomanMap.TryGetValue(n, out var r) ? r : n.ToString();
 
-    /// <summary>파란 밑줄 표 안에 'Ⅰ. 본문' 1줄 렌더링.</summary>
+    /// <summary>
+    /// 제목 행 + 그라데이션 ribbon (1×2 표) 으로 'Ⅰ. 본문' 렌더링.
+    /// 양식삽입 #4 중제목_그라인드 와 동일 레이아웃 — 폰트만 spec 주입.
+    /// </summary>
     public void Render(int number, string title)
     {
         var s = Spec;
@@ -28,24 +33,31 @@ public sealed class SectionRenderer : ElementRenderer
         if (!IsAtLineStart(Hwp)) BreakPara(Hwp);
         AlignPara(Hwp, Align.Justify);
 
-        // 1×1 표
+        // 1×2 표 — 제목 행 + 그라데이션 ribbon 행 (1.3mm)
         double usableWidth = 205 - (s.Margins.Left + s.Margins.Right);
-        MakeTable(Hwp, new[] { usableWidth }, new[] { s.SectionBoxHeightMm });
-        SetCellMarginZero(Hwp);
+        MakeTable(Hwp, new[] { usableWidth }, new[] { s.SectionBoxHeightMm, 1.3 });
 
-        // 외곽 테두리: 하단만 실선
-        SetTableBorderType(Hwp, BorderType.None, BorderType.Solid, BorderType.None, BorderType.None);
-        SetTableBorderThickness(Hwp, 6, 8, 6, 6);
-        SetTableBorderColor(Hwp, s.SectionUnderlineRgb);
+        // 전체 셀 외곽/내부 라인 제거
+        SelectAllCells(Hwp);
+        SetTableBorderType(Hwp, BorderType.None, BorderType.None, BorderType.None, BorderType.None);
+        SetTableInnerLineType(Hwp, BorderType.None, BorderType.None);
+        Run(Hwp, "Cancel");
+        // Cancel 후 캐럿 불확정 → (0,0) 강제 복귀 (없으면 제목이 ribbon 셀로 떨어짐)
+        Hwp.MovePos(106, 0, 0);
+        Hwp.MovePos(104, 0, 0);
 
-        // 숫자 부분
+        // ── Row 1: 제목 ──
         SetFont(Hwp, s.SectionNumberFont, s.SectionNumberSizePt, bold: s.SectionNumberBold);
         InsertText(Hwp, $"{ToRoman(number)}. ");
-
-        // 내용 부분
         CharNormal(Hwp);
         SetFont(Hwp, s.SectionTitleFont, s.SectionTitleSizePt, bold: false);
         InsertText(Hwp, title);
+
+        // ── Row 2: 그라데이션 ribbon (#3333A0 → #E3E2F2) ──
+        Run(Hwp, "TableLowerCell");
+        SetFontSize(Hwp, 1.0);
+        SetCellHeight(Hwp, 1.35);
+        SetTableBgGradient(Hwp, 0x33, 0x33, 0xA0, 0xE3, 0xE2, 0xF2, 90);
 
         // 표 탈출
         ExitTableAndJustify(Hwp);
