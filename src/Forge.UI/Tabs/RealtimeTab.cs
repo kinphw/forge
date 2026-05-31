@@ -235,7 +235,7 @@ public sealed class RealtimeTab : TabPage
         var bar = new Panel
         {
             AutoSize = false,
-            Height = 36,
+            Height = 44,           // 버튼(32px) + Location.Y(4) + 하단 여유 8 — GroupBox 와 겹침 방지
             Margin = new Padding(0, 0, 0, ForgeTheme.Pad),
         };
         var clearBtn = new Button { Text = "로그 비우기" };
