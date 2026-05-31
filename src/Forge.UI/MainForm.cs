@@ -72,7 +72,7 @@ public partial class MainForm : Form
         var statusBar = new Panel
         {
             Dock = DockStyle.Top,
-            Height = 44,
+            Height = 48,           // 버튼(y=7 + 32px) 의 하단이 TabControl underline 과 겹치지 않게 여유
             BackColor = ForgeTheme.PanelBg,
             Padding = new Padding(ForgeTheme.PadLg, 8, ForgeTheme.PadLg, 8),
         };
