@@ -57,7 +57,7 @@ public sealed class HowToTab : TabPage
 
         flow.Controls.Add(new Label
         {
-            Text = "자세한 사용법: 우상단 ? 버튼 / README / spec/",
+            Text = "제작자 : 우상단 ? 버튼",
             Font = ForgeTheme.Small(),
             ForeColor = ForgeTheme.TextMuted,
             AutoSize = true,

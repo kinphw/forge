@@ -286,10 +286,16 @@ public static class Primitives
     // ────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// 문서 6방향 여백 적용.
+    /// 현재 구역의 6방향 여백 적용.
     ///
     /// PageSetup ParameterSet 의 PageDef 는 중첩 PIT_SET 이라 SetItem 점 경로 불가.
     /// nested attribute 직접 대입 — tool2 `문서여백` 패턴.
+    ///
+    /// ApplyTo 옵션 (HWP API SecDef, page 120):
+    ///   0 = 선택된 구역, 1 = 선택된 문자열, 2 = 현재 구역, 3 = 문서 전체, 4 = 새 구역
+    /// → ApplyTo = 2 (현재 구역) 사용. 한/글은 문서와 구역의 기준이 달라 "문서 전체"
+    ///   (3) 로 두면 다중 구역 문서에서 사용자가 의도한 구역 외 다른 구역까지 영향.
+    ///   FileNew 직후 새 문서는 단일 구역이라 이 둘이 동일 — HwpxWriter mode=New 도 무영향.
     /// </summary>
     public static void SetPageMargins(
         dynamic hwp,
@@ -305,7 +311,7 @@ public static class Primitives
         pageDef.BottomMargin = ComHelpers.MmToHwp(hwp, bottomMm);
         pageDef.HeaderLen    = ComHelpers.MmToHwp(hwp, headerMm);
         pageDef.FooterLen    = ComHelpers.MmToHwp(hwp, footerMm);
-        hwp.HParameterSet.HSecDef.HSet.SetItem("ApplyTo", 3);  // 3 = 문서 전체
+        hwp.HParameterSet.HSecDef.HSet.SetItem("ApplyTo", 2);  // 2 = 현재 구역
         hwp.HAction.Execute("PageSetup", hwp.HParameterSet.HSecDef.HSet);
     }
 
@@ -755,6 +761,33 @@ public static class Primitives
     /// <summary>글자 음영색. color=0xFFFFFFFF 면 음영 제거.</summary>
     public static void SetTextShade(dynamic hwp, int color) =>
         ComHelpers.SetParam(hwp, "CharShape", new Dictionary<string, object> { ["ShadeColor"] = color });
+
+    /// <summary>
+    /// 6변 페이지 여백 (mm) — Left/Right/Top/Bottom + 머리말(Header) / 꼬리말(Footer) 길이.
+    /// </summary>
+    public sealed record PageMargins(
+        double Left, double Right, double Top, double Bottom,
+        double Header, double Footer);
+
+    /// <summary>
+    /// 현재 문서의 6변 여백을 읽어 mm 단위로 반환. SetPageMargins 의 역방향.
+    /// PageSetup ParameterSet 의 PageDef 항목 6개를 GetDefault 로 뽑아 변환.
+    /// MiliToHwpUnit(1.0) 으로 1mm 당 HWPUNIT 비율 동적 계산 (실패 시 tool2 fallback 283.4).
+    /// </summary>
+    public static PageMargins GetPageMargins(dynamic hwp)
+    {
+        var action = hwp.CreateAction("PageSetup");
+        var pset = action.CreateSet();
+        action.GetDefault(pset);
+        var pageDef = pset.Item("PageDef");
+        double perMm = (double)hwp.MiliToHwpUnit(1.0);
+        if (perMm == 0) perMm = 283.4;
+        double Read(string key) => Math.Round((int)(pageDef.Item(key) ?? 0) / perMm, 2);
+        return new PageMargins(
+            Read("LeftMargin"),  Read("RightMargin"),
+            Read("TopMargin"),   Read("BottomMargin"),
+            Read("HeaderLen"),   Read("FooterLen"));
+    }
 
     /// <summary>
     /// 페이지 좌+우 여백 합 (mm). tool2 `문단여백측정` (line 294-300) 1:1.

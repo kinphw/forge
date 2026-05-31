@@ -50,6 +50,11 @@ public sealed class RealtimeTab : TabPage
     private readonly TextBox[] _hkLetters = new TextBox[Actions.All.Count];
     private readonly Label[] _hkStatusLbls = new Label[Actions.All.Count];
 
+    // 설정 초기화 시 즉시 UI 갱신용 ref. 4 폰트 cluster + blank size + (qBlankBetween 은 별도 필드).
+    private readonly ComboBox[] _fontCombos = new ComboBox[4];
+    private readonly TextBox[]  _fontSizes  = new TextBox[4];
+    private TextBox _blankSizeBox = null!;
+
     private TextBox _logOutput = null!;
     private GlobalHotkeyManager? _hotkeys;
     private System.Windows.Forms.Timer? _persistTimer;
@@ -284,16 +289,15 @@ public sealed class RealtimeTab : TabPage
     }
 
     /// <summary>
-    /// 폰트(4) + 빈줄 크기 + 단축키 letter 8개를 default 로 복원.
-    /// 메모리 상태 + UserSettings 의 realtime·keymap 섹션 즉시 reset.
-    /// UI 입력 칸은 컨트롤 ref 추적 비용 회피 위해 재시작 시 반영.
+    /// 폰트(4) + 빈줄 크기 + 단축키 letter + 토글을 모두 default 로 복원.
+    /// 메모리 상태 + UserSettings 의 realtime·keymap 섹션 + UI 입력 칸까지 즉시 reset.
     /// </summary>
     private void OnResetSettings()
     {
         var dr = MessageBox.Show(FindForm(),
-            "RealtimeTab 의 폰트·크기·단축키를 모두 default 로 초기화합니다.\n\n" +
-            "• 한/글 적용 동작(hotkey, 마크다운 변환의 SSOT 주입) 은 즉시 default 로 복원됩니다.\n" +
-            "• UI 입력 칸 (폰트 콤보·크기·단축키 letter) 표시는 다음 앱 시작 시 반영됩니다.\n\n" +
+            "RealtimeTab 의 폰트·크기·단축키·토글을 모두 default 로 초기화합니다.\n\n" +
+            "• 메모리 상태 + UI 입력 칸 (폰트 콤보·크기 박스·단축키 letter) 즉시 복원.\n" +
+            "• 한/글 단축키 재등록 + UserSettings 의 realtime/keymap 섹션 삭제.\n\n" +
             "계속하시겠습니까?",
             "설정 초기화",
             MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
@@ -313,9 +317,40 @@ public sealed class RealtimeTab : TabPage
         var okRt = UserSettings.RemoveSection("realtime");
         var okKm = UserSettings.RemoveSection("keymap");
 
+        // ─ UI 즉시 갱신 ─
+        // 폰트 cluster (combo + size). TextChanged 가 다시 QueuePersist 를 부르지만 default 값이
+        // 다시 저장되는 무해한 사이클 — 결과는 동일.
+        var fontNames = new[] { Font1Name, Font2Name, Font3Name, Font4Name };
+        var fontSizes = new[] { Font1Size, Font2Size, Font3Size, Font4Size };
+        for (int i = 0; i < 4; i++)
+        {
+            if (_fontCombos[i] is not null) _fontCombos[i].Text = fontNames[i];
+            if (_fontSizes[i]  is not null) _fontSizes[i].Text  = fontSizes[i].ToString("0.#");
+        }
+        if (_blankSizeBox is not null) _blankSizeBox.Text = BlankSize.ToString("0.#");
+        if (_qBlankBetween is not null) _qBlankBetween.Checked = BlankBetweenMarkers;
+
+        // 단축키 letter + status 라벨 + Win32 재등록
+        for (int i = 0; i < Actions.All.Count; i++)
+        {
+            var act = Actions.All[i];
+            if (_hkLetters[i] is not null) _hkLetters[i].Text = act.DefaultKey;
+            string letter = act.DefaultKey;
+            uint? vk = letter.Length == 1 ? VirtualKey.Letter(letter[0]) : null;
+            int hkId = i + 1;
+            bool ok = _hotkeys?.Replace(hkId, vk,
+                vk is null ? $"{act.Label} (비활성)" : $"Ctrl+Shift+{letter}") ?? false;
+            if (_hkStatusLbls[i] is not null)
+            {
+                _hkStatusLbls[i].Text = vk is null ? "—" : (ok ? "✓" : "✗");
+                _hkStatusLbls[i].ForeColor = vk is null
+                    ? ForgeTheme.TextMuted
+                    : (ok ? ForgeTheme.Success : ForgeTheme.Error);
+            }
+        }
+
         Log($"✔ 설정 초기화 완료 (realtime={(okRt ? "OK" : "FAIL")}, keymap={(okKm ? "OK" : "FAIL")}).");
-        Log("  메모리 상태는 즉시 default 로 복원됨 — 다음 hotkey/변환부터 default 적용.");
-        Log("  UI 입력 칸은 다음 앱 시작 시 default 로 표시됩니다.");
+        Log("  메모리·UI·단축키 즉시 default 로 복원됨.");
         _updateStatus();
     }
 
@@ -327,8 +362,11 @@ public sealed class RealtimeTab : TabPage
         {
             Text = "현재 캐럿 또는 선택영역에 적용",
             AutoSize = false,
-            Height = 460,  // 11 rows × ~36 + separator × 2 + header
-            MinimumSize = new Size(640, 0),  // column 합 + 여유 — 좁아지면 horizontal scroll
+            // 14 button 행 (~36px each, AutoSize RowStyle 보장) + separator × 3 (~14px) +
+            // GroupBox header/padding (~30) — 부족 시 행 잘림 사고.
+            // (AutoSize=true 는 grid Dock=Fill 과 circular sizing → 시도 금지.)
+            Height = 640,
+            MinimumSize = new Size(640, 0),
             Margin = new Padding(0, 0, 0, ForgeTheme.Pad),
         };
         ForgeTheme.StyleGroup(box);
@@ -358,13 +396,13 @@ public sealed class RealtimeTab : TabPage
 
         // 행 3: 본문 폰트 (A)
         AddRow(grid, 3, "폰트·크기 (본문)",
-            BuildFontCluster(Font1Name, Font1Size, (n, s) => { Font1Name = n; Font1Size = s; QueuePersist("font1", n); QueuePersist("size1", s); }),
+            BuildFontCluster(0, Font1Name, Font1Size, (n, s) => { Font1Name = n; Font1Size = s; QueuePersist("font1", n); QueuePersist("size1", s); }),
             null, hkIndex: 2,
             tooltip: "선택영역 폰트·크기 (본문) — 우측 입력값 적용");
 
         // 행 4: 주석 폰트 (S)
         AddRow(grid, 4, "폰트·크기 (주석)",
-            BuildFontCluster(Font2Name, Font2Size, (n, s) => { Font2Name = n; Font2Size = s; QueuePersist("font2", n); QueuePersist("size2", s); }),
+            BuildFontCluster(1, Font2Name, Font2Size, (n, s) => { Font2Name = n; Font2Size = s; QueuePersist("font2", n); QueuePersist("size2", s); }),
             null, hkIndex: 3,
             tooltip: "선택영역 폰트·크기 (주석) — 우측 입력값 적용");
 
@@ -376,13 +414,13 @@ public sealed class RealtimeTab : TabPage
 
         // 행 6: 헤드라인 폰트 (F)
         AddRow(grid, 6, "폰트·크기 (헤드라인)",
-            BuildFontCluster(Font3Name, Font3Size, (n, s) => { Font3Name = n; Font3Size = s; QueuePersist("font3", n); QueuePersist("size3", s); }),
+            BuildFontCluster(2, Font3Name, Font3Size, (n, s) => { Font3Name = n; Font3Size = s; QueuePersist("font3", n); QueuePersist("size3", s); }),
             null, hkIndex: 4,
             tooltip: "선택영역 폰트·크기 (헤드라인) — 우측 입력값 적용");
 
         // 행 7: 울릉도 폰트 (G)
         AddRow(grid, 7, "폰트·크기 (울릉도)",
-            BuildFontCluster(Font4Name, Font4Size, (n, s) => { Font4Name = n; Font4Size = s; QueuePersist("font4", n); QueuePersist("size4", s); }),
+            BuildFontCluster(3, Font4Name, Font4Size, (n, s) => { Font4Name = n; Font4Size = s; QueuePersist("font4", n); QueuePersist("size4", s); }),
             null, hkIndex: 5,
             tooltip: "선택영역 폰트·크기 (울릉도) — 우측 입력값 적용");
 
@@ -397,12 +435,25 @@ public sealed class RealtimeTab : TabPage
         AddRow(grid, 10, "선택영역 → 마크다운 변환", null, null, hkIndex: 8,
             tooltip: "선택 영역의 plain 텍스트를 md 로 해석해 그 자리 변환");
 
+        // 행 11: separator
+        AddSeparator(grid, 11);
+
+        // 행 12: 여백 캡쳐 (기본 단축키 빈칸)
+        AddRow(grid, 12, "여백 캡쳐 (현재 문서 → 클립보드)", null, null, hkIndex: 9,
+            tooltip: "현재 한/글 문서의 6변 여백 (Left/Right/Top/Bottom/Header/Footer) 을\n" +
+                     "세션 클립보드에 저장 (앱 종료 시 휘발).");
+
+        // 행 13: 여백 적용 (기본 단축키 빈칸)
+        AddRow(grid, 13, "여백 적용 (클립보드 → 현재 문서)", null, null, hkIndex: 10,
+            tooltip: "클립보드에 저장된 여백을 현재 한/글 문서 전체에 적용.");
+
         box.Controls.Add(grid);
         return box;
     }
 
     private void AddRow(TableLayoutPanel grid, int row, string buttonText, Control? center, Control? right, int hkIndex, string tooltip)
     {
+        EnsureRowStyle(grid, row);
         var act = Actions.All[hkIndex];
         var btn = new Button { Text = buttonText, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = new Size(210, 32), TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 8, 0) };
         ForgeTheme.StyleFlatButton(btn);
@@ -420,13 +471,25 @@ public sealed class RealtimeTab : TabPage
 
     private void AddSeparator(TableLayoutPanel grid, int row)
     {
+        EnsureRowStyle(grid, row);
         var sep = new Panel { Height = 1, BackColor = ForgeTheme.Border, Dock = DockStyle.Fill, Margin = new Padding(0, 6, 0, 6) };
         grid.Controls.Add(sep, 0, row);
         grid.SetColumnSpan(sep, 3);
     }
 
-    /// <summary>폰트 cluster — [ComboBox: 폰트명] [TextBox: pt]</summary>
-    private Control BuildFontCluster(string initName, double initSize, Action<string, double> onChange)
+    /// <summary>
+    /// TableLayoutPanel 의 해당 row 에 AutoSize RowStyle 보장.
+    /// 기본 RowStyle 은 Absolute(20) 이라 32px MinimumSize 버튼이 다음 행을 침범 →
+    /// 마지막 행이 GroupBox 하단을 벗어나서 안 보이는 사고 회피.
+    /// </summary>
+    private static void EnsureRowStyle(TableLayoutPanel grid, int row)
+    {
+        while (grid.RowStyles.Count <= row)
+            grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+    }
+
+    /// <summary>폰트 cluster — [ComboBox: 폰트명] [TextBox: pt]. slot: 0..3 → _fontCombos/_fontSizes 저장.</summary>
+    private Control BuildFontCluster(int slot, string initName, double initSize, Action<string, double> onChange)
     {
         var p = new TableLayoutPanel
         {
@@ -464,18 +527,22 @@ public sealed class RealtimeTab : TabPage
         combo.TextChanged += (_, _) => Push();
         size.TextChanged += (_, _) => Push();
 
+        _fontCombos[slot] = combo;
+        _fontSizes[slot] = size;
+
         p.Controls.Add(combo, 0, 0);
         p.Controls.Add(size, 1, 0);
         return p;
     }
 
-    /// <summary>크기-only cluster — [TextBox: pt] (행 5 빈줄용).</summary>
+    /// <summary>크기-only cluster — [TextBox: pt] (행 5 빈줄용). _blankSizeBox 에 ref 저장.</summary>
     private Control BuildSizeOnlyCluster(double initSize, Action<double> onChange)
     {
         var p = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(0) };
         var size = new TextBox { Text = initSize.ToString("0.#"), Width = 60, Font = ForgeTheme.Body() };
         ForgeTheme.StyleInput(size);
         size.TextChanged += (_, _) => { if (double.TryParse(size.Text, out var s)) onChange(s); };
+        _blankSizeBox = size;
         var pt = new Label { Text = "pt", AutoSize = true, ForeColor = ForgeTheme.TextMuted, Margin = new Padding(4, 6, 0, 0), Font = ForgeTheme.Small() };
         p.Controls.Add(size);
         p.Controls.Add(pt);
@@ -747,6 +814,46 @@ public sealed class RealtimeTab : TabPage
         catch (NoSelectionException ex)
         {
             MessageBox.Show(FindForm(), ex.Message, "선택 영역 변환", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+    }
+
+    // ─ 여백 클립보드 (세션 한정, 영속화 없음) ─────────────────────────
+    private Primitives.PageMargins? _marginClipboard;
+
+    public void RunMarginCapture()
+    {
+        if (_state.Hwp is null) return;
+        try
+        {
+            _marginClipboard = Primitives.GetPageMargins(_state.Hwp.Hwp);
+            var m = _marginClipboard;
+            Log($"[여백 캡쳐] L={m.Left:0.##} R={m.Right:0.##} T={m.Top:0.##} " +
+                $"B={m.Bottom:0.##} H={m.Header:0.##} F={m.Footer:0.##} (mm)");
+        }
+        catch (Exception ex)
+        {
+            Log($"[여백 캡쳐] ✘ {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    public void RunMarginApply()
+    {
+        if (_state.Hwp is null) return;
+        if (_marginClipboard is null)
+        {
+            Log("[여백 적용] 클립보드 비어있음 — 먼저 '여백 캡쳐' 버튼으로 다른 문서에서 캡쳐하세요.");
+            return;
+        }
+        try
+        {
+            var m = _marginClipboard;
+            Primitives.SetPageMargins(_state.Hwp.Hwp, m.Left, m.Right, m.Top, m.Bottom, m.Header, m.Footer);
+            Log($"[여백 적용] L={m.Left:0.##} R={m.Right:0.##} T={m.Top:0.##} " +
+                $"B={m.Bottom:0.##} H={m.Header:0.##} F={m.Footer:0.##} (mm) — 현재 구역 적용");
+        }
+        catch (Exception ex)
+        {
+            Log($"[여백 적용] ✘ {ex.GetType().Name}: {ex.Message}");
         }
     }
 

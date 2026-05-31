@@ -25,6 +25,8 @@ public static class Actions
         new("para_size_8",      "D", "현재 문단 글자크기",   rt => rt.RunParagraphSize8()),
         new("kerning_reset",    "Z", "자간 0",               rt => rt.RunKerningReset()),
         new("md_convert_sel",   "X", "선택→md 변환",         rt => rt.RunMdConvertSelection()),
+        new("margin_capture",   "",  "여백 캡쳐",            rt => rt.RunMarginCapture()),
+        new("margin_apply",     "",  "여백 적용",            rt => rt.RunMarginApply()),
     };
 
     public static ActionDef ByHkId(int hkId) => All[hkId - 1];

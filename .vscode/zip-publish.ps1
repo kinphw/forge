@@ -24,7 +24,12 @@ $ver = $verNode.InnerText.Trim()
 $zip = Join-Path $root ('publish/Forge-v' + $ver + '.zip')
 
 if (Test-Path $zip) { Remove-Item $zip }
-Compress-Archive -Path $exe -DestinationPath $zip
+
+# Forge.exe + 양식삽입 미리보기 PNG 폴더 (있을 때만) 함께 아카이브.
+$paths = @($exe)
+$resDir = Join-Path $root 'publish/fdd/resources'
+if (Test-Path $resDir) { $paths += $resDir }
+Compress-Archive -Path $paths -DestinationPath $zip
 
 $kb = [math]::Round((Get-Item $zip).Length / 1KB, 1)
 Write-Host ''

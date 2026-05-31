@@ -285,26 +285,42 @@ B사:  8,567 건 (2024.3~9 누적)
         };
         ForgeTheme.StyleGroup(specBox);
 
-        var flow = new FlowLayoutPanel
+        // ★ 2-row 구조: 스피너 줄 (Dock=Top, 첫 추가 → 위) + 버튼 줄 (Dock=Top, 마지막 추가 → 아래).
+        //   FlowLayoutPanel 의 AutoSize+WrapContents 가 함께 안 먹는 (AutoSize 가 폭을 늘려
+        //   wrap 발동 안 함) WinForms quirk 회피용. 두 flow 로 명시 분리.
+
+        // 버튼 줄 (Dock=Top 으로 specBox 에 마지막 추가 → 시각상 아래)
+        var buttonFlow = new FlowLayoutPanel
         {
             Dock = DockStyle.Top,
             FlowDirection = FlowDirection.LeftToRight,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             WrapContents = false,
-            Padding = new Padding(4),
+            Padding = new Padding(4, 0, 4, 4),
+        };
+
+        // 스피너 줄
+        var inputFlow = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            FlowDirection = FlowDirection.LeftToRight,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = false,
+            Padding = new Padding(4, 4, 4, 0),
         };
 
         var md = UserSettings.GetSection("markdown");
         var m = _state.Spec.Margins;
 
-        _mLeft   = AddMarginSpinner(flow, "좌",   GetD(md, "margin_left",   m.Left));
-        _mRight  = AddMarginSpinner(flow, "우",   GetD(md, "margin_right",  m.Right));
-        _mTop    = AddMarginSpinner(flow, "위",   GetD(md, "margin_top",    m.Top));
-        _mBottom = AddMarginSpinner(flow, "아래", GetD(md, "margin_bottom", m.Bottom));
-        _mHeader = AddMarginSpinner(flow, "머리", GetD(md, "margin_header", m.Header));
-        _mFooter = AddMarginSpinner(flow, "꼬리", GetD(md, "margin_footer", m.Footer));
-        flow.Controls.Add(new Label
+        _mLeft   = AddMarginSpinner(inputFlow, "좌",   GetD(md, "margin_left",   m.Left));
+        _mRight  = AddMarginSpinner(inputFlow, "우",   GetD(md, "margin_right",  m.Right));
+        _mTop    = AddMarginSpinner(inputFlow, "위",   GetD(md, "margin_top",    m.Top));
+        _mBottom = AddMarginSpinner(inputFlow, "아래", GetD(md, "margin_bottom", m.Bottom));
+        _mHeader = AddMarginSpinner(inputFlow, "머리", GetD(md, "margin_header", m.Header));
+        _mFooter = AddMarginSpinner(inputFlow, "꼬리", GetD(md, "margin_footer", m.Footer));
+        inputFlow.Controls.Add(new Label
         {
             Text = "mm", AutoSize = true,
             Font = ForgeTheme.Small(), ForeColor = ForgeTheme.TextMuted,
@@ -312,13 +328,13 @@ B사:  8,567 건 (2024.3~9 누적)
         });
 
         // separator
-        flow.Controls.Add(new Label
+        inputFlow.Controls.Add(new Label
         {
             Text = "│", AutoSize = true,
             ForeColor = ForgeTheme.Border, Margin = new Padding(0, 6, 8, 0),
         });
 
-        flow.Controls.Add(new Label
+        inputFlow.Controls.Add(new Label
         {
             Text = "줄간격", AutoSize = true,
             Font = ForgeTheme.Body(), ForeColor = ForgeTheme.TextPrimary,
@@ -331,8 +347,8 @@ B사:  8,567 건 (2024.3~9 누적)
             Width = 56, Font = ForgeTheme.Body(),
         };
         _lineDefault.ValueChanged += (_, _) => QueuePersist("line_default", (int)_lineDefault.Value);
-        flow.Controls.Add(_lineDefault);
-        flow.Controls.Add(new Label
+        inputFlow.Controls.Add(_lineDefault);
+        inputFlow.Controls.Add(new Label
         {
             Text = "%", AutoSize = true,
             Font = ForgeTheme.Small(), ForeColor = ForgeTheme.TextMuted,
@@ -342,19 +358,61 @@ B사:  8,567 건 (2024.3~9 누적)
         var resetBtn = new Button { Text = "↺ 기본값", Margin = new Padding(0, 4, 6, 0) };
         ForgeTheme.StyleFlatButton(resetBtn);
         resetBtn.Click += (_, _) => ResetSpec();
-        flow.Controls.Add(resetBtn);
+        buttonFlow.Controls.Add(resetBtn);
 
-        var applyBtn = new Button { Text = "설정 적용", Margin = new Padding(0, 4, 0, 0) };
+        var applyBtn = new Button { Text = "설정 적용", Margin = new Padding(0, 4, 6, 0) };
         ForgeTheme.StyleFlatButton(applyBtn);
         applyBtn.Click += (_, _) =>
         {
             if (ApplyVarsToSpec(silent: false))
                 Log("[spec] 양식 spec 적용됨 — 다음 변환부터 반영");
         };
-        flow.Controls.Add(applyBtn);
+        buttonFlow.Controls.Add(applyBtn);
 
-        specBox.Controls.Add(flow);
+        // 현재 한/글 문서(현재 구역) 에 즉시 6변 여백 적용 — 새 파일 변환을 거치지 않고 다이렉트.
+        var applyHwpBtn = new Button { Text = "현재 구역에 적용", Margin = new Padding(0, 4, 0, 0) };
+        ForgeTheme.StyleFlatButton(applyHwpBtn);
+        applyHwpBtn.Click += (_, _) => OnApplyMarginsToCurrentHwp();
+        buttonFlow.Controls.Add(applyHwpBtn);
+
+        // Dock=Top stack 추가 순서 = bottom-up: 먼저 추가가 아래, 마지막이 위.
+        // 시각 순서 [스피너 위 / 버튼 아래] 를 위해 buttonFlow 먼저 추가, inputFlow 나중.
+        specBox.Controls.Add(buttonFlow);
+        specBox.Controls.Add(inputFlow);
         return specBox;
+    }
+
+    /// <summary>
+    /// 6 spinner 값을 현재 한/글 문서에 즉시 Primitives.SetPageMargins 로 적용.
+    /// MdConvert 의 새 파일 생성 경로를 거치지 않음 — 활성 문서 그대로 변경.
+    /// </summary>
+    private void OnApplyMarginsToCurrentHwp()
+    {
+        if (Main is null) return;
+        if (!Main.EnsureHwp(allowSpawn: false))
+        {
+            Log("[여백] 한/글 attach 실패 — 한/글 먼저 실행해 주세요.");
+            return;
+        }
+        if (_state.Hwp is null) return;
+
+        double L = (double)_mLeft.Value;
+        double R = (double)_mRight.Value;
+        double T = (double)_mTop.Value;
+        double B = (double)_mBottom.Value;
+        double H = (double)_mHeader.Value;
+        double F = (double)_mFooter.Value;
+        try
+        {
+            Forge.Core.Renderers.Primitives.SetPageMargins(
+                _state.Hwp.Hwp, L, R, T, B, H, F);
+            Log($"[여백] 현재 구역 적용: L={L:0.##} R={R:0.##} T={T:0.##} " +
+                $"B={B:0.##} H={H:0.##} F={F:0.##} (mm)");
+        }
+        catch (Exception ex)
+        {
+            Log($"[여백] 적용 실패: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     private NumericUpDown AddMarginSpinner(FlowLayoutPanel parent, string label, double initial)
