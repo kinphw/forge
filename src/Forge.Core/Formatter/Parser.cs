@@ -160,7 +160,9 @@ public static class Parser
             if (mAttach.Success)
             {
                 int? num = mAttach.Groups[1].Success ? int.Parse(mAttach.Groups[1].Value) : null;
-                var (children, consumed) = ParseCalloutBody(lines, i + 1);
+                // ★ [붙임] 박스 본문은 다음 1줄만 — 그 뒤 줄들은 box 밖 일반 본문으로 흐름.
+                //   ([참고] 는 기존대로 빈 줄까지 multi-line.)
+                var (children, consumed) = ParseCalloutBody(lines, i + 1, maxLines: 1);
                 var node = new Node
                 {
                     Type = NodeType.Callout,
@@ -202,11 +204,12 @@ public static class Parser
         return nodes;
     }
 
-    private static (List<Node> Children, int Consumed) ParseCalloutBody(string[] lines, int start)
+    private static (List<Node> Children, int Consumed) ParseCalloutBody(
+        string[] lines, int start, int maxLines = int.MaxValue)
     {
         var children = new List<Node>();
         int j = start;
-        while (j < lines.Length)
+        while (j < lines.Length && children.Count < maxLines)
         {
             var line = lines[j].Trim();
             if (line.Length == 0) break;

@@ -1,9 +1,9 @@
-// 탭 ① 실시간 작업 — Python realtime_tab.py 충실 포팅.
+// 탭 ① 실시간 작업.
 //
 // 구조:
-//   상단 meta bar — 🧹 로그 비우기 + 개별기능 표시 체크박스
-//   3-컬럼 grid [버튼 | 폰트cluster | 단축키]:
-//     그룹 1 (정렬): 자동 정렬 (Q) / 어절 끌어올림 (W)
+//   상단 meta bar — 로그 비우기 + 설정 초기화
+//   3-컬럼 grid [버튼 | 옵션/폰트cluster | 단축키]:
+//     그룹 1 (정렬): 자동 정렬 (Q) [center: 마커 사이 빈줄 자동삽입 체크박스] / 어절 끌어올림 (W)
 //     ───────────────────────────────────────
 //     그룹 2 (폰트, A/S/D/F/G 키보드 순):
 //       본문 (A) / 주석 (S) / 빈줄 크기 (D) / 헤드라인 (F) / 울릉도 (G)
@@ -43,7 +43,10 @@ public sealed class RealtimeTab : TabPage
     public double Font4Size { get; private set; } = 15.0;
     public double BlankSize { get; private set; } = 8.0;
 
-    private CheckBox _showIndividual = null!;
+    /// <summary>Q 자동정렬 pre-pass — 마커 문단 연속 시 사이에 빈줄(BlankSize) 자동 삽입.</summary>
+    public bool BlankBetweenMarkers { get; private set; } = false;
+
+    private CheckBox _qBlankBetween = null!;
     private readonly TextBox[] _hkLetters = new TextBox[Actions.All.Count];
     private readonly Label[] _hkStatusLbls = new Label[Actions.All.Count];
 
@@ -80,6 +83,7 @@ public sealed class RealtimeTab : TabPage
         Font3Size = GetDouble(rt, "size3", Font3Size);
         Font4Size = GetDouble(rt, "size4", Font4Size);
         BlankSize = GetDouble(rt, "blank_size", BlankSize);
+        BlankBetweenMarkers = GetBool(rt, "q_blank_between_markers", BlankBetweenMarkers);
     }
 
     private static string GetStr(Dictionary<string, System.Text.Json.JsonElement> d, string key, string fallback) =>
@@ -92,6 +96,14 @@ public sealed class RealtimeTab : TabPage
         if (!d.TryGetValue(key, out var v)) return fallback;
         if (v.ValueKind == System.Text.Json.JsonValueKind.Number) return v.GetDouble();
         if (v.ValueKind == System.Text.Json.JsonValueKind.String && double.TryParse(v.GetString(), out var p)) return p;
+        return fallback;
+    }
+
+    private static bool GetBool(Dictionary<string, System.Text.Json.JsonElement> d, string key, bool fallback)
+    {
+        if (!d.TryGetValue(key, out var v)) return fallback;
+        if (v.ValueKind == System.Text.Json.JsonValueKind.True) return true;
+        if (v.ValueKind == System.Text.Json.JsonValueKind.False) return false;
         return fallback;
     }
 
@@ -223,7 +235,7 @@ public sealed class RealtimeTab : TabPage
         var bar = new Panel
         {
             AutoSize = false,
-            Height = 44,
+            Height = 36,
             Margin = new Padding(0, 0, 0, ForgeTheme.Pad),
         };
         var clearBtn = new Button { Text = "로그 비우기" };
@@ -233,36 +245,42 @@ public sealed class RealtimeTab : TabPage
         bar.Controls.Add(clearBtn);
         _tooltip.SetToolTip(clearBtn, "로그 영역의 모든 내용 지우기");
 
-        var rt = UserSettings.GetSection("realtime");
-        var showInitial = rt.TryGetValue("show_individual", out var v) &&
-                          v.ValueKind == System.Text.Json.JsonValueKind.True;
-        _showIndividual = new CheckBox
-        {
-            Text = "개별기능 표시",
-            AutoSize = true,
-            Font = ForgeTheme.Body(),
-            Checked = showInitial,
-            Location = new Point(160, 8),
-        };
-        _showIndividual.CheckedChanged += (_, _) =>
-        {
-            QueuePersist("show_individual", _showIndividual.Checked);
-            // TODO: 행 11·12 (들여쓰기 정렬·자간조정 개별 버튼) 표시 토글
-        };
-        bar.Controls.Add(_showIndividual);
-
         var resetBtn = new Button { Text = "설정 초기화" };
         ForgeTheme.StyleFlatButton(resetBtn, glyph: MdlIcon.Refresh);
         resetBtn.Click += (_, _) => OnResetSettings();
-        resetBtn.Location = new Point(280, 4);
+        resetBtn.Location = new Point(140, 4);
         bar.Controls.Add(resetBtn);
         _tooltip.SetToolTip(resetBtn,
             "폰트·크기·단축키를 모두 default 로 복원.\n" +
             "한/글 적용 동작은 즉시 default. UI 입력 칸은 다음 앱 시작 시 반영.");
 
-        bar.Width = 480;
-        bar.Height = 36;
+        bar.Width = 320;
         return bar;
+    }
+
+    /// <summary>
+    /// "마커 사이 빈줄 자동삽입" 체크박스 — 자동정렬(Q) 행의 center 컬럼에 들어감.
+    /// 단축키는 가변(letter 변경 가능)이라 라벨에서 'Q' 표기는 제거.
+    /// </summary>
+    private Control BuildBlankBetweenCheckbox()
+    {
+        _qBlankBetween = new CheckBox
+        {
+            Text = "마커 사이 빈줄 자동삽입",
+            AutoSize = true,
+            Font = ForgeTheme.Body(),
+            Checked = BlankBetweenMarkers,
+            Margin = new Padding(0, 6, 0, 0),
+        };
+        _qBlankBetween.CheckedChanged += (_, _) =>
+        {
+            BlankBetweenMarkers = _qBlankBetween.Checked;
+            QueuePersist("q_blank_between_markers", BlankBetweenMarkers);
+        };
+        _tooltip.SetToolTip(_qBlankBetween,
+            "자동정렬 시, 여러 줄 선택 영역에서 마커 문단(□ ○ * ※ Ⅰ. 가. 등) 이\n" +
+            "개행 분리 없이 연속되면 사이에 빈줄 자동 삽입 + 빈줄 글자크기는 d 값.");
+        return _qBlankBetween;
     }
 
     /// <summary>
@@ -286,6 +304,7 @@ public sealed class RealtimeTab : TabPage
         Font3Name = "HY헤드라인M"; Font3Size = 15.0;
         Font4Name = "HY울릉도M";   Font4Size = 15.0;
         BlankSize = 8.0;
+        BlankBetweenMarkers = false;
 
         // pending debounce 폐기 — reset 직전의 미반영 변경이 살아남는 사고 방지
         _pendingPersist.Clear();
@@ -324,8 +343,8 @@ public sealed class RealtimeTab : TabPage
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 290));  // 폰트 cluster
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));   // 단축키 (나머지)
 
-        // 행 0: 자동 정렬 (Q)
-        AddRow(grid, 0, "자동 정렬 (들·자·들)", null, null,
+        // 행 0: 자동 정렬 (Q) — center 컬럼에 "마커 사이 빈줄 자동삽입" 토글 동거
+        AddRow(grid, 0, "자동 정렬 (들·자·들)", BuildBlankBetweenCheckbox(), null,
             hkIndex: 0,
             tooltip: "문서기호 이후 들여쓰기 조정 + 어절 잘리지 않게 자간조정 동시 실행");
 
@@ -648,8 +667,42 @@ public sealed class RealtimeTab : TabPage
             Forge.Core.Linter.IndentAlign.ProcessParagraph(h, log);
         };
 
+        // ─ Pre-pass: 마커 연속 문단 사이에 빈줄 자동 삽입 (체크박스 토글) ─
+        //
+        // ★ pre-pass 가 selection 을 Cancel 하므로, pre-pass 가 실행된 경우엔 insertion
+        //   개수와 무관하게 saved 범위로 ApplyPerParagraphInRange 를 호출해야 함.
+        //   (이전 회귀: 0건 삽입 시 fall-through 로 ApplyPerParagraph → SelectionRange null
+        //   → 단일 캐럿 모드로 빠져서 1 문단만 처리.)
+        Forge.Core.Linter.CaretPos? rangeStart = null;
+        Forge.Core.Linter.CaretPos? rangeEnd = null;
+        if (BlankBetweenMarkers)
+        {
+            object hwpObj = (object)_state.Hwp.Hwp;
+            var selBefore = Forge.Core.Linter.Range.SelectionRange(hwpObj);
+            if (selBefore.HasValue)
+            {
+                Log("[STAGE 0] 마커 연속 → 빈줄 자동 삽입 pre-pass");
+                int inserted = Forge.Core.Linter.IndentAlign.InsertBlanksBetweenMarkers(
+                    _state.Hwp.Hwp, BlankSize, lg);
+                rangeStart = selBefore.Value.Start;
+                rangeEnd = selBefore.Value.End with { Para = selBefore.Value.End.Para + inserted };
+                if (inserted > 0)
+                    Log($"  ★ 정렬 영역 확장: end.Para {selBefore.Value.End.Para} → {rangeEnd.Value.Para} (+{inserted})");
+                else
+                    Log($"  · 삽입 없음 — 원래 범위 그대로 ({rangeStart.Value} → {rangeEnd.Value})");
+            }
+        }
+
         Log("━━━━━━ 자동 정렬 (들·자·들) 시작 ━━━━━━");
-        Forge.Core.Linter.Range.ApplyPerParagraph(_state.Hwp.Hwp, combined, lg);
+        if (rangeStart.HasValue && rangeEnd.HasValue)
+        {
+            Forge.Core.Linter.Range.ApplyPerParagraphInRange(
+                _state.Hwp.Hwp, combined, rangeStart.Value, rangeEnd.Value, lg);
+        }
+        else
+        {
+            Forge.Core.Linter.Range.ApplyPerParagraph(_state.Hwp.Hwp, combined, lg);
+        }
         Log("━━━━━━ 자동 정렬 완료 ━━━━━━");
     }
 

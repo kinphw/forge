@@ -11,6 +11,7 @@
 //   6. MoveNextParaBegin
 
 using System.Globalization;
+using Forge.Core.Renderers;     // Primitives.SetFontSize
 using Forge.Interop.HwpObject;  // PIA — typed IHwpObject.GetText(out string)
 
 namespace Forge.Core.Linter;
@@ -398,5 +399,152 @@ public static class IndentAlign
         ParaActionFn action = ProcessParagraph;
         Range.ApplyPerParagraph(hwp, action, log);
         log("[align_current_paragraph] 완료");
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // 마커 연속 사이 빈줄 자동 삽입 (Q 자동정렬 pre-pass)
+    // ────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// 현재 캐럿 위치의 문단이 마커 문단인지 — 첫 문자/토큰이 bullet/annotation/section 마커.
+    /// 호출 전후 캐럿은 현재 문단 시작에 위치.
+    ///
+    /// ★ 공백 없는 표기 대응 — '□안녕' 같이 마커 직후 공백 없는 케이스도 인식.
+    ///   공백 기준 첫 단어 슬라이싱은 '□안녕' → '□안녕' 통째 → marker 미인식 사고.
+    ///   1) single-char marker (□ ○ ◦ - · ⇨ → ※ † *) 는 첫 문자만 검사 — 공백 무관.
+    ///   2) section marker (1./가./Ⅰ. 등) 는 '.' 까지의 짧은 prefix 추출 + 클래스 검사.
+    /// </summary>
+    public static bool IsCurrentParagraphMarker(dynamic hwp)
+    {
+        hwp.Run("MoveParaBegin");
+        hwp.Run("MoveSelParaEnd");
+        string full = BlockChar(hwp);
+        hwp.Run("Cancel");
+        hwp.Run("MoveParaBegin");
+
+        if (string.IsNullOrWhiteSpace(full)) return false;
+        var trimmed = full.TrimStart();
+        if (trimmed.Length == 0) return false;
+
+        // 1) single-char bullet/annotation — 첫 문자만 보면 됨 (공백 없어도 OK)
+        string firstCharStr = trimmed[0].ToString();
+        if (BulletMarkers.Contains(firstCharStr)) return true;
+        if (AnnotationFixed.Contains(firstCharStr)) return true;
+        if (trimmed[0] == '*') return true;
+
+        // 2) section marker (digit/hangul/roman prefix + '.') — '.' 위치 짧은 범위 안에서 검색
+        int dotIdx = trimmed.IndexOf('.');
+        if (dotIdx > 0 && dotIdx <= 4)
+        {
+            var prefix = trimmed[..dotIdx];
+            if (prefix.All(char.IsDigit)) return true;
+            if (prefix.All(ch => SectionHangul.Contains(ch))) return true;
+            if (prefix.All(ch => SectionRoman.Contains(ch))) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 현재 문단 앞에 빈 단락 1줄 삽입 + d처리 (글자크기 BlankSize 적용).
+    /// 호출 전: 캐럿 = 현재 문단 시작.
+    /// 호출 후: 캐럿 = 같은 문단 시작 (현재 문단은 1 칸 밑으로 밀려있음, Para 인덱스 +1).
+    ///
+    /// BreakPara at start of N → empty new para 위에 생성, caret 은 (shifted) N 시작.
+    /// → MovePrevParaBegin 으로 빈 para 진입 → MoveSelParaEnd + SetFontSize + Cancel
+    ///   (RunParagraphSize8 와 동일 패턴) → MoveNextParaBegin 으로 N 시작 복귀.
+    /// </summary>
+    public static void InsertBlankBeforeCurrent(dynamic hwp, double blankSizePt)
+    {
+        hwp.Run("MoveParaBegin");
+        hwp.Run("BreakPara");
+        hwp.Run("MovePrevParaBegin");
+        hwp.Run("MoveParaBegin");
+        hwp.Run("MoveSelParaEnd");
+        Primitives.SetFontSize(hwp, blankSizePt);
+        hwp.Run("Cancel");
+        hwp.Run("MoveNextParaBegin");
+    }
+
+    /// <summary>
+    /// 현재 selection 의 범위 내에서, 연속된 marker 문단 사이에 빈 단락 (BlankSize pt) 자동 삽입.
+    /// 반환: 삽입된 줄 수 — caller 가 새 end.Para = origEnd.Para + 반환값 으로 확장.
+    ///
+    /// 알고리즘:
+    ///   1. SelectionRange 로 (start, origEnd) 획득. 단일 캐럿이면 0 반환 (no-op).
+    ///   2. start.List != origEnd.List 이면 skip (cross-list 영역은 보수적으로 건드리지 않음).
+    ///   3. 캐럿을 start 로 이동, origParaCount 만큼 forward 순회:
+    ///        - 현재 문단 marker 검사
+    ///        - prev_was_marker && cur_is_marker → InsertBlankBeforeCurrent
+    ///        - prev_was_marker := cur_is_marker
+    ///        - MoveNextParaBegin (삽입 직후라도 다음 원본 문단으로 자연 이동)
+    ///   4. 빈 단락 / body 문단은 prev_was_marker=false 로 자동 리셋 — 기존 빈줄 있으면 추가 삽입 없음.
+    /// </summary>
+    public static int InsertBlanksBetweenMarkers(dynamic hwp, double blankSizePt, LogFn? log = null)
+    {
+        log ??= _ => { };
+
+        object hwpObj = hwp;
+        var sel = Range.SelectionRange(hwpObj);
+        if (sel is null)
+        {
+            log("[blank-insert] 단일 캐럿 — skip");
+            return 0;
+        }
+
+        var start = sel.Value.Start;
+        var origEnd = sel.Value.End;
+        if (start.List != origEnd.List)
+        {
+            log($"[blank-insert] cross-list selection ({start.List} ≠ {origEnd.List}) — skip");
+            return 0;
+        }
+
+        log($"[blank-insert] selection {start} → {origEnd}");
+        hwp.Run("Cancel");
+        Range.SetCaretPos(hwp, start);
+
+        int origParaCount = origEnd.Para - start.Para + 1;
+        if (origParaCount < 2)
+        {
+            log("[blank-insert] 단일 문단 selection — 비교 대상 없음, skip");
+            return 0;
+        }
+
+        int inserted = 0;
+        int processed = 0;
+        bool prevWasMarker = false;
+        const int maxIter = 1000;
+        int iters = 0;
+
+        while (iters < maxIter && processed < origParaCount)
+        {
+            bool isMarker = IsCurrentParagraphMarker(hwp);
+            var caretAt = Range.GetCaretPos(hwp);
+            log($"  [blank-insert #{processed}] caret={caretAt} isMarker={isMarker}");
+
+            if (prevWasMarker && isMarker)
+            {
+                InsertBlankBeforeCurrent(hwp, blankSizePt);
+                inserted++;
+                log($"    ✔ 빈줄 삽입 (누적 {inserted})");
+            }
+
+            prevWasMarker = isMarker;
+            processed++;
+
+            var prevCaret = Range.GetCaretPos(hwp);
+            hwp.Run("MoveNextParaBegin");
+            var newCaret = Range.GetCaretPos(hwp);
+            if (newCaret == prevCaret)
+            {
+                log("[blank-insert] 진행 멈춤 — 종료");
+                break;
+            }
+            iters++;
+        }
+
+        log($"[blank-insert] 완료: 처리 {processed} 문단, 삽입 {inserted} 줄");
+        return inserted;
     }
 }

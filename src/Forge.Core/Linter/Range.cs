@@ -112,12 +112,29 @@ public static class Range
             ApplyAcrossLists(hwp, fn, log, start.List, end.List);
     }
 
+    /// <summary>
+    /// SelectionRange 대신 명시적 (start, end) 범위로 fn 적용 — pre-pass 가 selection 을
+    /// 변형(빈줄 삽입 등) 한 뒤 호출용. 단일/다중 list 분기는 ApplyPerParagraph 와 동일.
+    /// </summary>
+    public static void ApplyPerParagraphInRange(
+        dynamic hwp, ParaActionFn fn, CaretPos start, CaretPos end, LogFn? log = null)
+    {
+        log ??= NoopLog;
+        log($"  [range] explicit: {start} → {end}");
+        hwp.Run("Cancel");
+        if (start.List == end.List)
+            ApplyWithinList(hwp, fn, log, start, end);
+        else
+            ApplyAcrossLists(hwp, fn, log, start.List, end.List);
+    }
+
     private static void ApplyWithinList(dynamic hwp, ParaActionFn fn, LogFn log, CaretPos start, CaretPos end)
     {
         SetCaretPos(hwp, start);
         const int maxIter = 1000;
         int iters = 0;
         int processed = 0;
+        int lastProcessedPara = -1;   // 같은 Para 재처리 방지
 
         while (iters < maxIter)
         {
@@ -132,9 +149,18 @@ public static class Range
                 log($"  [range] end 문단({end.Para}) 초과 — 종료");
                 break;
             }
+            // ★ 마지막 문단 처리 후 MoveNextParaBegin 이 같은 Para 내 (Pos 만 변경) 로 떨어지는
+            //   경우, 종료 검사(prev.Para > end.Para / newPos == prev) 가 한 박자 늦어 같은
+            //   문단이 한 번 더 fn 으로 들어가는 사고. lastProcessedPara 로 명시 차단.
+            if (prev.Para == lastProcessedPara)
+            {
+                log($"  [range] para {prev.Para} 이미 처리 — 종료");
+                break;
+            }
 
             log($"  [range#{iters}] 문단 (list={prev.List}, para={prev.Para}) 처리");
             fn(hwp, log);
+            lastProcessedPara = prev.Para;
             processed++;
 
             var newPos = GetCaretPos(hwp);
@@ -174,10 +200,17 @@ public static class Range
             visited++;
             log($"  [list#{listId}] 진입, 문단 순회 시작");
             int innerIters = 0;
+            int lastProcessedPara = -1;   // 같은 Para 재처리 방지 (ApplyWithinList 와 동일)
             while (innerIters < 1000)
             {
                 var pPrev = GetCaretPos(hwp);
+                if (pPrev.Para == lastProcessedPara)
+                {
+                    log($"  [list#{listId}] para {pPrev.Para} 이미 처리 — 다음 list");
+                    break;
+                }
                 fn(hwp, log);
+                lastProcessedPara = pPrev.Para;
                 var pNew = GetCaretPos(hwp);
                 if (pNew.List != listId)
                 {

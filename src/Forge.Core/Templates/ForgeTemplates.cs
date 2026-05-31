@@ -1,4 +1,4 @@
-// Forge 가 선별·정의한 보고서 양식 카탈로그 (17종).
+// Forge 가 선별·정의한 보고서 양식 카탈로그 (20종).
 // tool2 (금감원 오피스 프로그램) 의 권위 spec 에서 forge 가 직접 선별 — fss/tool2
 // 의 양식 그대로가 아니라 forge 의 본 도구의 자체 양식 집합.
 //
@@ -7,7 +7,7 @@
 //   - 목차 (1):     금감보고서목차 (Ⅰ./Ⅱ./Ⅲ. 자동 키-인)
 //   - 참고박스 (6): 꺽쇠박스 / 점선박스 / 요약박스 / 화살표박스_회색 / 참고박스_마크다운 / 블루진박스
 //   - 붙임박스 (1): 참고 (진파헤더)
-//   - 기호 (4):     당구장 ※ / 십자가 † / 꺽쇠 「」 / 꺽쇠 『』
+//   - 기호 (7):     당구장 ※ / 십자가 † / 네모 □ / 동그라미 ○ / 작은동그라미 ◦ / 꺽쇠 「」 / 꺽쇠 『』
 //
 // 활성 한/글 문서의 현재 커서 위치에 emit. placeholder 글자 (◆◆◆◆◆, ◎◎◎◎◎ 등)
 // 는 사용자가 한/글에서 직접 교체.
@@ -524,6 +524,15 @@ public static class ForgeTemplates
 
     public static void 십자가(dynamic hwp) => InsertText(hwp, "†");
 
+    /// <summary>본문 L1 글머리 — □ (U+25A1). 마크다운 변환 후 결과와 동일.</summary>
+    public static void 네모(dynamic hwp) => InsertText(hwp, "□");
+
+    /// <summary>본문 L2 글머리 입력용 — ○ (U+25CB). md 변환 시 출력은 ◦ 로 바뀜.</summary>
+    public static void 동그라미(dynamic hwp) => InsertText(hwp, "○");
+
+    /// <summary>본문 L2 글머리 출력용 — ◦ (U+25E6). 마크다운 변환 후 결과.</summary>
+    public static void 작은동그라미(dynamic hwp) => InsertText(hwp, "◦");
+
     public static void 꺽쇠_홑(dynamic hwp)
     {
         // 맑은 고딕으로 박고 typing attr 복귀. 캐럿은 」 뒤.
@@ -605,9 +614,15 @@ public static class ForgeTemplates
             "당구장 ※", "주석 마커 ※ 1 글자"),
         new(15, "기호", h => 십자가((dynamic)h),
             "십자가 †", "보조 주석 마커 † 1 글자"),
-        new(16, "기호", h => 꺽쇠_홑((dynamic)h),
+        new(16, "기호", h => 네모((dynamic)h),
+            "네모 □", "본문 L1 글머리 □ (마크다운 후 결과)"),
+        new(17, "기호", h => 동그라미((dynamic)h),
+            "동그라미 ○", "본문 L2 글머리 입력용 ○ (md 변환 시 ◦ 로 바뀜)"),
+        new(18, "기호", h => 작은동그라미((dynamic)h),
+            "작은 동그라미 ◦", "본문 L2 글머리 ◦ (마크다운 후 결과)"),
+        new(19, "기호", h => 꺽쇠_홑((dynamic)h),
             "꺽쇠 「」 (홑)", "맑은 고딕 「」, 캐럿은 」 뒤"),
-        new(17, "기호", h => 꺽쇠_겹((dynamic)h),
+        new(20, "기호", h => 꺽쇠_겹((dynamic)h),
             "꺽쇠 『』 (겹)", "맑은 고딕 『』, 책·문헌 제목"),
     };
 }
