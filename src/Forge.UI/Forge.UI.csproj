@@ -31,15 +31,23 @@
     <ProjectReference Include="..\Forge.Win32\Forge.Win32.csproj" />
   </ItemGroup>
 
-  <!-- ─ 양식삽입 호버 미리보기 PNG ─────────────────────────────────────
-       resources/template-previews/{NN}.png 들을 output 의 같은 경로로 복사.
-       TemplatesTab.LoadPreview 가 AppContext.BaseDirectory 기준으로 읽음.
-       파일 없으면 build 무영향, popup 은 placeholder 표시. -->
+  <!-- ─ 양식삽입 호버 미리보기 PNG (임베드 리소스) ──────────────────────
+       어셈블리 manifest 리소스로 박아 single-file exe 안에 포함.
+       매니페스트 이름: Forge.TemplatePreviews.{NN}.png
+       (TemplatesTab.LoadPreview 가 GetManifestResourceStream 으로 읽음.) -->
   <ItemGroup>
-    <None Include="..\..\resources\template-previews\*.png">
-      <Link>resources\template-previews\%(Filename)%(Extension)</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <EmbeddedResource Include="..\..\resources\template-previews\*.png">
+      <LogicalName>Forge.TemplatePreviews.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!-- ─ 실시간 작업 호버 미리보기 PNG (전/후 토글, 임베드 리소스) ────────
+       매니페스트 이름: Forge.RealtimePreviews.{NN}_b.png / {NN}_a.png
+       (RealtimeTab.LoadPreviewPair 가 GetManifestResourceStream 으로 읽음.) -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\resources\realtime-previews\*.png">
+      <LogicalName>Forge.RealtimePreviews.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

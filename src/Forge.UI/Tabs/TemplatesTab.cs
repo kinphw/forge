@@ -217,8 +217,8 @@ public sealed class TemplatesTab : TabPage
 
     /// <summary>
     /// 양식 미리보기 PNG 로드 (cache).
-    /// 경로: &lt;exe-dir&gt;/resources/template-previews/{num:D2}.png
-    /// 파일 없으면 cache 에 null 저장 → popup 이 placeholder 표시.
+    /// 임베드 매니페스트 이름: Forge.TemplatePreviews.{NN}.png (csproj 의 LogicalName 매칭).
+    /// 없으면 cache 에 null 저장 → popup 이 placeholder 표시.
     /// </summary>
     private Image? LoadPreview(int num)
     {
@@ -227,13 +227,17 @@ public sealed class TemplatesTab : TabPage
         Image? img = null;
         try
         {
-            var path = Path.Combine(
-                AppContext.BaseDirectory, "resources", "template-previews", $"{num:D2}.png");
-            if (File.Exists(path))
+            var name = $"Forge.TemplatePreviews.{num:D2}.png";
+            using var manifest = System.Reflection.Assembly
+                .GetExecutingAssembly().GetManifestResourceStream(name);
+            if (manifest is not null)
             {
-                // FileStream 으로 읽어 즉시 메모리에 복제 — File 핸들 잡지 않음 (덮어쓰기 가능).
-                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read);
-                img = Image.FromStream(fs);
+                // Image.FromStream 은 stream lifetime 요구 — MemoryStream 으로 복사.
+                // 복사된 ms 는 Image 가 참조 유지하므로 별도 처분 불요 (GC 시 같이).
+                var ms = new MemoryStream();
+                manifest.CopyTo(ms);
+                ms.Position = 0;
+                img = Image.FromStream(ms);
             }
         }
         catch { /* 손상 PNG 등 — null 로 fallback */ }

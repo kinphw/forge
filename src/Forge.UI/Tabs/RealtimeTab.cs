@@ -60,6 +60,18 @@ public sealed class RealtimeTab : TabPage
     private System.Windows.Forms.Timer? _persistTimer;
     private readonly Dictionary<string, object?> _pendingPersist = new();
 
+    // ─ 호버 미리보기 (전/후 PNG 토글) ─
+    private PictureBox _previewPicture = null!;
+    private Label _previewLabel = null!;
+    private Label _previewBadge = null!;   // 현재 프레임 표시 — "이전" / "이후"
+    private System.Windows.Forms.Timer? _previewToggleTimer;
+    private const int PreviewToggleMs = 900;
+    // action_id → (before, after). 둘 다 null 이면 "PNG 없음" (호버 시 무동작).
+    private readonly Dictionary<string, (Image? Before, Image? After)> _previewCache = new();
+    private Image? _curBefore;
+    private Image? _curAfter;
+    private bool _showingAfter;   // 현재 PictureBox 가 after 프레임이면 true
+
     public RealtimeTab(AppState state, Action updateStatus)
     {
         _state = state;
@@ -220,7 +232,19 @@ public sealed class RealtimeTab : TabPage
         leftScroll.Controls.Add(desc);
         leftScroll.Controls.Add(title);
 
-        // ─ 우측 = 로그 ─
+        // ─ 우측 = 미리보기 (상 60%) + 로그 (하 40%) ─
+        var rightSplit = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+        };
+        rightSplit.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        rightSplit.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
+        rightSplit.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
+
+        rightSplit.Controls.Add(BuildPreviewPanel(), 0, 0);
+
         _logOutput = new TextBox
         {
             Dock = DockStyle.Fill,
@@ -231,8 +255,169 @@ public sealed class RealtimeTab : TabPage
             ForeColor = ForgeTheme.LogText,
             Font = ForgeTheme.Mono(),
             BorderStyle = BorderStyle.FixedSingle,
+            Margin = new Padding(0, ForgeTheme.Pad, 0, 0),
         };
-        root.Controls.Add(_logOutput, 1, 0);
+        rightSplit.Controls.Add(_logOutput, 0, 1);
+
+        root.Controls.Add(rightSplit, 1, 0);
+    }
+
+    private Control BuildPreviewPanel()
+    {
+        var box = new GroupBox
+        {
+            Text = "미리보기 (버튼 호버 — 전/후 토글)",
+            Dock = DockStyle.Fill,
+        };
+        ForgeTheme.StyleGroup(box);
+
+        // 상단 배지 — 현재 프레임을 "이전" / "이후" 큰 글씨 + 색상으로 명시.
+        _previewBadge = new Label
+        {
+            Dock = DockStyle.Top,
+            Height = 32,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Font = ForgeTheme.BodyBold(),
+            ForeColor = Color.White,
+            BackColor = ForgeTheme.TextMuted,
+            Text = "",
+            Visible = false,
+        };
+        _previewPicture = new PictureBox
+        {
+            Dock = DockStyle.Fill,
+            SizeMode = PictureBoxSizeMode.Zoom,
+            BackColor = Color.White,
+        };
+        _previewLabel = new Label
+        {
+            Dock = DockStyle.Fill,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Text = "버튼에 마우스를 올리면 전/후 변화가 토글됩니다.",
+            Font = ForgeTheme.Body(),
+            ForeColor = ForgeTheme.TextMuted,
+            BackColor = Color.White,
+        };
+        // 추가 순서: Fill (picture) → Top (badge) → Fill overlay (placeholder).
+        //   Dock=Top 은 추가 시점의 남은 공간 상단을 차지하므로 picture 가 먼저여야 함.
+        box.Controls.Add(_previewPicture);
+        box.Controls.Add(_previewBadge);
+        box.Controls.Add(_previewLabel);
+        _previewLabel.BringToFront();
+
+        _previewToggleTimer = new System.Windows.Forms.Timer { Interval = PreviewToggleMs };
+        _previewToggleTimer.Tick += (_, _) => TogglePreviewFrame();
+        return box;
+    }
+
+    /// <summary>배지 텍스트/색상 갱신. showingAfter=true → "이후 (after)" 강조색.</summary>
+    private void UpdateBadge()
+    {
+        if (_previewBadge is null) return;
+        if (_showingAfter)
+        {
+            _previewBadge.Text = "▶  이 후  (after)";
+            _previewBadge.BackColor = ForgeTheme.Success;   // 변환 후 — 강조
+        }
+        else
+        {
+            _previewBadge.Text = "◀  이 전  (before)";
+            _previewBadge.BackColor = ForgeTheme.TextMuted;  // 변환 전 — 차분
+        }
+    }
+
+    /// <summary>
+    /// action_id → 우측 패널의 시각 행 번호 (1-indexed, 위에서부터).
+    /// PNG 파일명은 {slot:D2}_b.png / _a.png 로 매칭.
+    /// 새 액션 추가 시 여기 한 줄 추가하면 됨.
+    /// </summary>
+    private static readonly Dictionary<string, int> PreviewSlots = new()
+    {
+        ["auto_align"]      = 1,
+        ["word_pull"]       = 2,
+        ["font_body"]       = 3,
+        ["font_annotation"] = 4,
+        ["para_size_8"]     = 5,
+        ["font_headline"]   = 6,
+        ["font_uleungdo"]   = 7,
+        ["kerning_reset"]   = 8,
+        ["md_convert_sel"]  = 9,
+        ["margin_capture"]  = 10,
+        ["margin_apply"]    = 11,
+    };
+
+    /// <summary>
+    /// 임베드 매니페스트 리소스 Forge.RealtimePreviews.{slot:D2}_b.png + _a.png 로드 (cache).
+    /// 둘 중 하나만 있어도 OK (toggle 시 그것만 보임). 둘 다 없으면 (null, null).
+    /// </summary>
+    private (Image? Before, Image? After) LoadPreviewPair(string actionId)
+    {
+        if (_previewCache.TryGetValue(actionId, out var cached)) return cached;
+        if (!PreviewSlots.TryGetValue(actionId, out var slot))
+        {
+            _previewCache[actionId] = (null, null);
+            return (null, null);
+        }
+
+        Image? load(string suffix)
+        {
+            try
+            {
+                var name = $"Forge.RealtimePreviews.{slot:D2}_{suffix}.png";
+                using var manifest = System.Reflection.Assembly
+                    .GetExecutingAssembly().GetManifestResourceStream(name);
+                if (manifest is not null)
+                {
+                    // Image.FromStream stream lifetime — MemoryStream 복사 (Image 가 ref 유지).
+                    var ms = new MemoryStream();
+                    manifest.CopyTo(ms);
+                    ms.Position = 0;
+                    return Image.FromStream(ms);
+                }
+            }
+            catch { /* 손상 PNG — null */ }
+            return null;
+        }
+        var pair = (load("b"), load("a"));
+        _previewCache[actionId] = pair;
+        return pair;
+    }
+
+    /// <summary>호버 시 호출 — 새 액션의 before/after 로드 후 토글 시작.</summary>
+    private void StartPreviewFor(string actionId)
+    {
+        var (before, after) = LoadPreviewPair(actionId);
+        if (before is null && after is null) return;   // PNG 없음 — 직전 표시 유지
+
+        _curBefore = before;
+        _curAfter = after;
+        // 첫 프레임 = before (없으면 after). after 한 장만 있을 땐 showingAfter 로 마킹.
+        if (before is not null)
+        {
+            _showingAfter = false;
+            _previewPicture.Image = before;
+        }
+        else
+        {
+            _showingAfter = true;
+            _previewPicture.Image = after;
+        }
+        _previewLabel.Visible = false;
+        _previewBadge.Visible = true;
+        UpdateBadge();
+
+        if (before is not null && after is not null)
+            _previewToggleTimer?.Start();
+        else
+            _previewToggleTimer?.Stop();   // 한 장만 있으면 토글 의미 없음
+    }
+
+    private void TogglePreviewFrame()
+    {
+        if (_curBefore is null || _curAfter is null) return;
+        _showingAfter = !_showingAfter;
+        _previewPicture.Image = _showingAfter ? _curAfter : _curBefore;
+        UpdateBadge();
     }
 
     private Panel BuildMetaBar()
@@ -459,6 +644,8 @@ public sealed class RealtimeTab : TabPage
         ForgeTheme.StyleFlatButton(btn);
         btn.Click += (_, _) => SafeInvoke(act);
         _tooltip.SetToolTip(btn, tooltip);
+        // 호버 시 우측 미리보기 패널에 전/후 PNG 토글 시작.
+        btn.MouseEnter += (_, _) => StartPreviewFor(act.Id);
         grid.Controls.Add(btn, 0, row);
 
         if (center is not null)
@@ -864,5 +1051,21 @@ public sealed class RealtimeTab : TabPage
         _logOutput.AppendText(msg + Environment.NewLine);
         _logOutput.SelectionStart = _logOutput.TextLength;
         _logOutput.ScrollToCaret();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _previewToggleTimer?.Stop();
+            _previewToggleTimer?.Dispose();
+            foreach (var (b, a) in _previewCache.Values)
+            {
+                b?.Dispose();
+                a?.Dispose();
+            }
+            _previewCache.Clear();
+        }
+        base.Dispose(disposing);
     }
 }
