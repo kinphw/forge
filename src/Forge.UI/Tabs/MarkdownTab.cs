@@ -18,7 +18,10 @@ public sealed class MarkdownTab : TabPage
     private TextBox _dateInput = null!;
     private TextBox _logOutput = null!;
     private Button _convertButton = null!;
+    private Button _cancelButton = null!;
     private Button _saveAsButton = null!;
+    private CheckBox _applyAutoFormat = null!;
+    private volatile bool _cancelRequested;
     private Label _statusLine = null!;
 
     // 페이지 spec — 양식 spec bar (margins 6 + 줄간격%)
@@ -202,15 +205,38 @@ B사:  8,567 건 (2024.3~9 누적)
         _convertButton.Click += OnConvert;
         _convertButton.Margin = new Padding(0, 0, 8, 0);
 
+        // 강제 중지 — 변환 중에만 활성. 클릭 시 _cancelRequested 플래그 → dispatcher 즉시 종료.
+        _cancelButton = new Button { Text = "강제 중지", Enabled = false };
+        ForgeTheme.StyleFlatButton(_cancelButton, glyph: MdlIcon.Clear);
+        _cancelButton.Click += (_, _) =>
+        {
+            _cancelRequested = true;
+            Log("[변환] 사용자 강제 중지 요청 — 다음 노드 경계에서 종료");
+            _cancelButton.Enabled = false;
+        };
+        _cancelButton.Margin = new Padding(0, 0, 8, 0);
+
         _saveAsButton = new Button { Text = "다른 이름으로 저장", Enabled = false };
         ForgeTheme.StyleFlatButton(_saveAsButton, glyph: MdlIcon.Save);
         _saveAsButton.Click += OnSaveAs;
+
+        // 사후 Q 처리(자동정렬 = 들여쓰기·자간) 활성/생략 체크박스. 기본 활성.
+        _applyAutoFormat = new CheckBox
+        {
+            Text = "사후 자동정렬 (Q)",
+            Checked = true,
+            AutoSize = true,
+            Margin = new Padding(12, 6, 0, 0),
+            ForeColor = ForgeTheme.TextPrimary,
+        };
 
         btnPanel.Controls.Add(sampleButton);
         btnPanel.Controls.Add(clearButton);
         btnPanel.Controls.Add(openButton);
         btnPanel.Controls.Add(_convertButton);
+        btnPanel.Controls.Add(_cancelButton);
         btnPanel.Controls.Add(_saveAsButton);
+        btnPanel.Controls.Add(_applyAutoFormat);
         grid.Controls.Add(btnPanel, 0, 5);
 
         return grid;
@@ -626,6 +652,29 @@ B사:  8,567 건 (2024.3~9 누적)
         Log("[변환] 시작 ...");
         SetStatus("변환 중 ...", ForgeTheme.Warning);
         _convertButton.Enabled = false;
+        _cancelRequested = false;
+        _cancelButton.Enabled = true;
+        // ★ Esc 로도 강제 중지 가능 — 변환 시작 시 form KeyPreview + KeyDown 핸들러 임시 부착.
+        var form = FindForm();
+        KeyEventHandler? escHandler = null;
+        bool prevKeyPreview = false;
+        if (form is not null)
+        {
+            prevKeyPreview = form.KeyPreview;
+            form.KeyPreview = true;
+            escHandler = (_, ke) =>
+            {
+                if (ke.KeyCode == Keys.Escape && _cancelButton.Enabled)
+                {
+                    _cancelRequested = true;
+                    Log("[변환] Esc — 강제 중지 요청");
+                    _cancelButton.Enabled = false;
+                    ke.Handled = true;
+                }
+            };
+            form.KeyDown += escHandler;
+        }
+        Application.DoEvents();   // 버튼 enable 즉시 paint
         try
         {
             var doc = Parser.Parse(src);
@@ -654,6 +703,14 @@ B사:  8,567 건 (2024.3~9 누적)
             }
 
             HwpxWriter.LogFn logFn = msg => Log($"  {msg}");
+            // cancel callback — UI 스레드에서 DoEvents 로 버튼 클릭 펌프 + 플래그 반환.
+            Func<bool> cancelCheck = () =>
+            {
+                Application.DoEvents();
+                return _cancelRequested;
+            };
+            bool runQ = _applyAutoFormat.Checked;
+            Log($"  [config] 사후 자동정렬(Q) = {(runQ ? "ON" : "OFF — STAGE 2 skip")}");
             HwpxWriter.GenerateHwpxViaCom(
                 _state.Hwp.Hwp,
                 doc,
@@ -662,11 +719,22 @@ B사:  8,567 건 (2024.3~9 누적)
                 log: logFn,
                 mode: HwpxWriteMode.New,
                 department: _deptInput.Text,
-                date: string.IsNullOrWhiteSpace(_dateInput.Text) ? null : _dateInput.Text);
+                date: string.IsNullOrWhiteSpace(_dateInput.Text) ? null : _dateInput.Text,
+                applyIndentAlign: runQ,
+                applyKerning: runQ,
+                isCancelled: cancelCheck);
 
-            _saveAsButton.Enabled = true;
-            Log("[변환] ✔ 완료 — 한/글 화면 확인 후 [다른 이름으로 저장] 으로 hwpx 저장");
-            SetStatus("✔ 변환 완료 — 저장 대기", ForgeTheme.Success);
+            if (_cancelRequested)
+            {
+                Log("[변환] ⚠ 사용자 강제 중지로 종료 — 부분 결과는 한/글 문서에 남아 있을 수 있음");
+                SetStatus("⚠ 강제 중지됨", ForgeTheme.Warning);
+            }
+            else
+            {
+                _saveAsButton.Enabled = true;
+                Log("[변환] ✔ 완료 — 한/글 화면 확인 후 [다른 이름으로 저장] 으로 hwpx 저장");
+                SetStatus("✔ 변환 완료 — 저장 대기", ForgeTheme.Success);
+            }
         }
         catch (Exception ex)
         {
@@ -677,6 +745,12 @@ B사:  8,567 건 (2024.3~9 누적)
         finally
         {
             _convertButton.Enabled = true;
+            _cancelButton.Enabled = false;
+            if (form is not null && escHandler is not null)
+            {
+                form.KeyDown -= escHandler;
+                form.KeyPreview = prevKeyPreview;
+            }
         }
     }
 
@@ -716,5 +790,8 @@ B사:  8,567 건 (2024.3~9 누적)
         _logOutput.AppendText(msg + Environment.NewLine);
         _logOutput.SelectionStart = _logOutput.TextLength;
         _logOutput.ScrollToCaret();
+        // ★ UI 응답성 — 변환 중 빈번한 Log 호출마다 message pump 처리해
+        //   강제 중지 버튼 클릭 + Esc 키 이벤트 잡힘.
+        if (_cancelButton is { Enabled: true }) Application.DoEvents();
     }
 }

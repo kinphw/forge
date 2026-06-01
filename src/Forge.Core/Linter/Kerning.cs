@@ -178,8 +178,12 @@ public static class Kerning
         log($"  [object] 처리된 area: {objCount}");
     }
 
-    /// <summary>문서 전체 + 표 셀 등 객체 영역에 자간조정 (배치 모드 STAGE 2).</summary>
-    public static void AdjustKerningToAvoidWordBreak(dynamic hwp, LogFn? log = null)
+    /// <summary>
+    /// 문서 전체 (+ 옵션: 표 셀 등 객체 영역) 자간조정 (배치 모드 STAGE 2).
+    /// includeObjects: false 면 객체 영역 skip — 마크다운 변환 후처리용.
+    /// 마크다운 박스 셀은 이미 시각 spec 대로 배치돼 있어 자간 손대면 박스 안 정렬 망가짐.
+    /// </summary>
+    public static void AdjustKerningToAvoidWordBreak(dynamic hwp, LogFn? log = null, bool includeObjects = true)
     {
         log ??= _ => { };
 
@@ -205,9 +209,16 @@ public static class Kerning
         }
         log($"[adjust_kerning] 본문 처리 완료 ({iters} 문단)");
 
-        log("[adjust_kerning] 객체 영역 순회 시작");
-        AdjustObjects(hwp, log);
-        log("[adjust_kerning] 객체 영역 처리 완료");
+        if (includeObjects)
+        {
+            log("[adjust_kerning] 객체 영역 순회 시작");
+            AdjustObjects(hwp, log);
+            log("[adjust_kerning] 객체 영역 처리 완료");
+        }
+        else
+        {
+            log("[adjust_kerning] 객체 영역 skip (includeObjects=false)");
+        }
     }
 
     /// <summary>selection 이 있으면 범위, 없으면 현재 문단 1개 자간조정.</summary>

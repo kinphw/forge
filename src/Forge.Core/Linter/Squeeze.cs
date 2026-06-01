@@ -236,18 +236,11 @@ public static class Squeeze
             return;
         }
 
-        // 4. 마지막 줄 어절 수 검사
+        // 4. 마지막 줄 텍스트 로그용 (조건 검사는 안 함).
+        //    2026-06-02 사용자 요청: 1-어절 조건 제거. 어절이 몇 개든 마지막 2 줄 자간
+        //    좁혀 1 줄 줄임 시도. 자간 한계 도달하면 noChangeLimit 로 자연 종료.
         var lastText = LastLineText(hwp, bodyStart.Value);
-        var wordCount = string.IsNullOrEmpty(lastText)
-            ? 0
-            : lastText.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries).Length;
-        log($"  마지막 줄 텍스트={lastText} 어절수={wordCount}");
-
-        if (wordCount != 1)
-        {
-            log($"[fit_to_one_line] 마지막 줄 어절 {wordCount} 개 (1 개 초과 또는 0) — skip");
-            return;
-        }
+        log($"  마지막 줄 텍스트={lastText}");
 
         // 5. SpacingDecrease 반복 — 마지막 직전 줄부터 paraEnd 까지만 자간 적용.
         //    (예전: bodyStart → paraEnd 전체 → 3줄+ 문단의 앞줄들이 불필요하게 줄어 망가짐.)

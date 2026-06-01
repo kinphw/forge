@@ -35,6 +35,22 @@ public static class Primitives
     private static readonly Regex BoldTokenRegex = new(@"__(.+?)__", RegexOptions.Compiled);
 
     // ────────────────────────────────────────────────────────────────────
+    // 진단 로그 훅 — HwpxWriter 등 외부에서 set/clear. 미설정 시 no-op.
+    //   ExitTableAndJustify 등 내부 캐럿 이동 추적용.
+    // ────────────────────────────────────────────────────────────────────
+    public static Action<string>? DiagLog;
+
+    private static string PosStr(dynamic hwp)
+    {
+        try
+        {
+            var pos = hwp.GetPosBySet();
+            return $"list={(int)pos.Item("List")} para={(int)pos.Item("Para")} pos={(int)pos.Item("Pos")}";
+        }
+        catch (Exception e) { return $"<pos err: {e.GetType().Name}>"; }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
     // 단위 변환 (ComHelpers 와 동일 — 렌더러가 한 곳에서 import 가능하게 중계)
     // ────────────────────────────────────────────────────────────────────
     public static int MmToHwp(dynamic hwp, double mm) => ComHelpers.MmToHwp(hwp, mm);
@@ -611,9 +627,38 @@ public static class Primitives
         // ★ 한컴 디벨로퍼 권위 패턴 (2026-05-19):
         //   CloseEx (표 빠져나오기) + MoveLineDown (한 줄 아래 = 표 다음).
         //   TreatAsChar = 1 와 함께 사용 시 nested + modal corruption 회피.
+        //
+        //   주의 (2026-06-02 cross-AI 컨설팅): MoveLineDown 은 시각적 이동이라 1×1 표 +
+        //   wrap 콘텐츠 + EOD 조합에서 no-op 되는 알려진 flaky 동작 있음. New 모드는
+        //   HwpxWriter.DispatchNodes 의 ForceBodyEnd (MoveDocEnd) 안전망이 매 노드 후
+        //   복구. Cursor 모드는 동일 사고 가능하나 사용자 캐럿 위치 보존 정책으로
+        //   MoveDocEnd 적용 불가 — 복잡 콘텐츠 변환 시 알려진 한계.
         Run(hwp, "CloseEx");
         Run(hwp, "MoveLineDown");
         AlignPara(hwp, Align.Justify);
+        EnsureBodyList(hwp);
+    }
+
+    /// <summary>
+    /// 캐럿이 본문(list 0) 에 있는지 확인. 아니면 CloseEx 추가 호출하여 본문까지 탈출.
+    /// 최대 5회 시도 후 포기 (무한 루프 방지).
+    /// </summary>
+    private static void EnsureBodyList(dynamic hwp)
+    {
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                var pos = hwp.GetPosBySet();
+                int list = (int)pos.Item("List");
+                if (list == 0) return;
+            }
+            catch
+            {
+                return;   // GetPosBySet 실패 — 안전상 종료
+            }
+            Run(hwp, "CloseEx");
+        }
     }
 
     /// <summary>

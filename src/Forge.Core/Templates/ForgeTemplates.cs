@@ -61,26 +61,41 @@ public static class ForgeTemplates
         ExitTableAndJustify(hwp);
     }
 
-    public static void 금감원페이지소제목(dynamic hwp, string 번호 = "가", string 내용 = "개요")
+    public static void 금감원페이지소제목(dynamic hwp, string 번호 = "가", string 내용 = "개요", ReportSpec? spec = null, bool skipLeadingBreak = false)
     {
+        // ★ SSOT — markdown SubsectionRenderer 가 이 함수를 호출. spec null 이면 양식삽입 기본값.
+        //   skipLeadingBreak=true: 호출자(마크다운 dispatcher) 가 이미 박스 앞 spacer 줄을
+        //   emit 한 경우 중복 방지. EnsureNewParagraph (안전망) 은 유지.
+        string font          = spec?.SubsectionFont           ?? "HY헤드라인M";
+        double markerSize    = spec?.SubsectionMarkerSizePt   ?? 15.0;
+        double contentSize   = spec?.SubsectionContentSizePt  ?? 15.5;
+        double boxH          = spec?.SubsectionBoxHeightMm    ?? 8.7;
+        double markerW       = spec?.SubsectionMarkerWidthMm  ?? 7.5;
+        double contentW      = spec?.SubsectionContentWidthMm ?? 49.0;
+        Rgb    markerBg      = spec?.SubsectionMarkerBgRgb    ?? new Rgb(224, 229, 250);
+        Rgb    borderRgb     = spec?.SubsectionBorderRgb      ?? new Rgb(62, 87, 165);
+
         // 3셀 표 (마커 / 1mm 분리 / 본문) — 라벤더 박스
         EnsureNewParagraph(hwp);
-        SetFontSize(hwp, 8);
-        BreakPara(hwp);
+        if (!skipLeadingBreak)
+        {
+            SetFontSize(hwp, 8);
+            BreakPara(hwp);
+        }
         AlignPara(hwp, Align.Justify);
-        MakeTable(hwp, new[] { 7.5, 1.0, 49.0 }, new[] { 8.7 });
-        SetTableBorderColor(hwp, 62, 87, 165);
-        SetTableBg(hwp, 224, 229, 250);
+        MakeTable(hwp, new[] { markerW, 1.0, contentW }, new[] { boxH });
+        SetTableBorderColor(hwp, borderRgb);
+        SetTableBg(hwp, markerBg);
         SetTableBorderThickness(hwp, 6, 6, 6, 6);
-        SetFont(hwp, "HY헤드라인M", 15);
+        SetFont(hwp, font, markerSize);
         AlignPara(hwp, Align.Center);
         InsertText(hwp, 번호);
         hwp.HAction.Run("TableRightCellAppend");
         SetTableBorderType(hwp, BorderType.None, BorderType.None, BorderType.Solid, BorderType.Solid);
         hwp.HAction.Run("TableRightCellAppend");
-        SetTableBorderColor(hwp, 62, 87, 165);
+        SetTableBorderColor(hwp, borderRgb);
         SetTableBorderThickness(hwp, 6, 6, 6, 6);
-        SetFont(hwp, "HY헤드라인M", 15.5);
+        SetFont(hwp, font, contentSize);
         InsertText(hwp, 내용);
         ExitTableAndJustify(hwp);
     }
@@ -310,14 +325,30 @@ public static class ForgeTemplates
     //     상단 셀: HY견명조 Bold 숫자 + HY헤드라인M 본문 16pt.
     //     하단 셀: 1.3mm 얇은 그라데이션 ribbon + 0.5mm 바닥선.
     // ────────────────────────────────────────────────────────────────────
-    public static void 중제목_그라인드(dynamic hwp, string 숫자 = "Ⅰ. ", string 내용 = "◆◆◆◆◆ 진행상황")
+    public static void 중제목_그라인드(dynamic hwp, string 숫자 = "Ⅰ. ", string 내용 = "◆◆◆◆◆ 진행상황", ReportSpec? spec = null, bool skipLeadingBreak = false)
     {
+        // ★ SSOT — markdown SectionRenderer 가 이 함수를 호출. spec null 이면 양식삽입 기본값.
+        //   skipLeadingBreak=true: 호출자(마크다운 dispatcher) 가 이미 박스 앞 spacer 줄을
+        //   emit 한 경우 중복 방지. EnsureNewParagraph (안전망) 은 유지.
+        string numberFont = spec?.SectionNumberFont ?? "HY견명조";
+        double numberSize = spec?.SectionNumberSizePt ?? 16.0;
+        bool   numberBold = spec?.SectionNumberBold   ?? true;
+        string titleFont  = spec?.SectionTitleFont    ?? "HY헤드라인M";
+        double titleSize  = spec?.SectionTitleSizePt  ?? 16.0;
+        double titleH     = spec?.SectionBoxHeightMm  ?? 9.3;
+
         EnsureNewParagraph(hwp);
-        SetFontSize(hwp, 8);
-        BreakPara(hwp);
+        if (!skipLeadingBreak)
+        {
+            SetFontSize(hwp, 8);
+            BreakPara(hwp);
+        }
         AlignPara(hwp, Align.Justify);
-        double w = 205.0 - (double)MeasurePageMarginMm(hwp);
-        MakeTable(hwp, new[] { w }, new[] { 9.3, 1.3 });
+
+        double w = (spec is not null)
+            ? 205.0 - (spec.Margins.Left + spec.Margins.Right)
+            : 205.0 - (double)MeasurePageMarginMm(hwp);
+        MakeTable(hwp, new[] { w }, new[] { titleH, 1.3 });
 
         // 전체 셀 선택 → 외곽/내부 라인 모두 제거 (셀 사이 hairline 까지)
         SelectAllCells(hwp);
@@ -331,11 +362,11 @@ public static class ForgeTemplates
         hwp.MovePos(104, 0, 0);
 
         // ── Row 1 (현재 caret): 제목 ──
-        SetFont(hwp, "HY견명조", 16);
-        hwp.HAction.Run("CharShapeBold");
+        SetFont(hwp, numberFont, numberSize);
+        if (numberBold) hwp.HAction.Run("CharShapeBold");
         InsertText(hwp, 숫자);
         hwp.HAction.Run("CharShapeNormal");
-        SetFont(hwp, "HY헤드라인M", 16);
+        SetFont(hwp, titleFont, titleSize);
         InsertText(hwp, 내용);
 
         // ── Row 2 로 이동 → 그라데이션 ribbon ──
@@ -348,6 +379,9 @@ public static class ForgeTemplates
         SetCellHeight(hwp, 1.35);    // 셀 높이 명시 고정 (글자크기만으로는 default 높이 잔존)
         // 하단 테두리 없음 — 그라데이션 fill 만 (SelectAllCells 단계에서 이미 4변 None 처리됨)
         SetTableBgGradient(hwp, 0x33, 0x33, 0xA0, 0xE3, 0xE2, 0xF2, 90);
+        // ★ ribbon 셀(1.35mm/1pt) 에서 직접 ExitTableAndJustify 가 셀 탈출 못하는 케이스 회피.
+        //   정상 사이즈 제목 행으로 복귀 후 exit.
+        hwp.HAction.Run("TableUpperCell");
         ExitTableAndJustify(hwp);
     }
 

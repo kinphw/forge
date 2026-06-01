@@ -59,10 +59,12 @@ public static class HwpxWriter
         string? department = null,
         string? date = null,
         bool applyIndentAlign = true,
-        bool applyKerning = true)
+        bool applyKerning = true,
+        Func<bool>? isCancelled = null)
     {
         spec ??= ReportSpec.Report1;
         log ??= _ => { };
+        isCancelled ??= () => false;
 
         bool metadataEmitted = false;
 
@@ -98,7 +100,27 @@ public static class HwpxWriter
 
         // ─── 본문 노드 dispatcher ───
         log($"[STAGE 1] 본문 {doc.Nodes.Count} 노드 dispatcher 시작");
-        DispatchNodes(hwp, doc.Nodes, spec, log, initialPrevEmitted: metadataEmitted);
+        // forceBodyEnd: New 모드만 true — 매 노드 후 MoveDocEnd 로 nesting 누적 회피.
+        // Cursor 모드 (X 단축키, 문서 중간 변환) 는 false — 캐럿이 변환 위치에 머물러야 함.
+        DispatchNodes(hwp, doc.Nodes, spec, log,
+            initialPrevEmitted: metadataEmitted,
+            // ★ New 모드 (append-only) 의 정공법 — 매 노드 후 MoveDocEnd + BreakPara.
+            //   2026-06-02 cross-AI 컨설팅 결론 (Gemini + Claude):
+            //   - Run("MoveLineDown") 은 시각적 한 줄 이동이라 1×1 TreatAsChar 표 + 긴
+            //     wrap 콘텐츠 + EOD 조합에서 no-op 됨 (HWP COM 의 알려진 flaky 동작).
+            //   - 한컴 공식 패턴 CloseEx + MoveLineDown 은 UI 키 녹화 기반이라 자동화
+            //     변환기에선 신뢰할 수 없는 anti-pattern.
+            //   - append-only 정공법 = MoveDocEnd (캐럿 본문 끝) + BreakPara (명시적 단락
+            //     분리, TreatAsChar 표가 다음 표와 같은 단락에 들러붙는 사고 회피).
+            //   - X 모드 (Cursor) 가 동작했던 건 페이지 여백/줄간격 inherit 으로 표
+            //     시각 layout 이 우연히 MoveLineDown 이 잡히는 좌표에 떨어진 운빨.
+            forceBodyEnd: mode == HwpxWriteMode.New,
+            isCancelled: isCancelled);
+        if (isCancelled())
+        {
+            log("[STAGE 1] ⚠ 사용자 강제 중지 — STAGE 2 / 저장 skip");
+            return "";
+        }
 
         // ─── STAGE 2 후처리 (new 모드만) ───
         // 순서: 들여쓰기 → 자간 → 들여쓰기 (3단계). hotkey Q '자동 정렬' 동일 패턴.
@@ -111,23 +133,28 @@ public static class HwpxWriter
             // HwpxWriter.LogFn 과 Linter.LogFn 이 이름 충돌 — 람다로 brige.
             Linter.LogFn linterLog = msg => log("  " + msg);
 
-            if (applyIndentAlign)
+            // ★ Q 단축키(RunAutoAlign) 와 동일 패턴 — doc-wide 1 pass + 각 문단 안에서
+            //   (들·자·들) 즉시 처리. 이전: 전체 들 → 전체 자 → 전체 들 의 3 doc-wide pass.
+            //   결과는 같지만 traversal 횟수 1/3 로 단축 + 각 문단이 한 번에 완성.
+            //   박스 셀(SubsectionRenderer/SectionRenderer/ConclusionRenderer 등) 은
+            //   렌더러가 이미 배치한 상태라 본문(list 0) 만 처리 — 객체 영역 skip.
+            if (applyIndentAlign && applyKerning)
             {
-                log("[STAGE 2] (1/3) 들여쓰기 정렬 — wrap 기준 확정");
-                try { Linter.IndentAlign.AlignLeftIndent(hwp, linterLog); }
-                catch (Exception e) { log($"  ⚠ 1차 들여쓰기 정렬 중단: {e.Message}"); }
+                log("[STAGE 2] 본문 문단별 (들·자·들) 통합 — 1 pass");
+                try { StageTwoCombined(hwp, linterLog); }
+                catch (Exception e) { log($"  ⚠ STAGE 2 통합 중단: {e.Message}"); }
             }
-            if (applyKerning)
+            else if (applyIndentAlign)
             {
-                log("[STAGE 2] (2/3) 자간조정 — 어절 잘림 방지 (줄당 ±15회)");
-                try { Linter.Kerning.AdjustKerningToAvoidWordBreak(hwp, linterLog); }
+                log("[STAGE 2] 들여쓰기 정렬만 — 본문 1 pass");
+                try { Linter.IndentAlign.AlignLeftIndent(hwp, linterLog, includeObjects: false); }
+                catch (Exception e) { log($"  ⚠ 들여쓰기 정렬 중단: {e.Message}"); }
+            }
+            else if (applyKerning)
+            {
+                log("[STAGE 2] 자간조정만 — 본문 1 pass");
+                try { Linter.Kerning.AdjustKerningToAvoidWordBreak(hwp, linterLog, includeObjects: false); }
                 catch (Exception e) { log($"  ⚠ 자간조정 중단: {e.Message}"); }
-            }
-            if (applyIndentAlign)
-            {
-                log("[STAGE 2] (3/3) 들여쓰기 재정렬 — 자간 drift 보정");
-                try { Linter.IndentAlign.AlignLeftIndent(hwp, linterLog); }
-                catch (Exception e) { log($"  ⚠ 2차 들여쓰기 정렬 중단: {e.Message}"); }
             }
         }
 
@@ -167,7 +194,9 @@ public static class HwpxWriter
         IReadOnlyList<Node> nodes,
         ReportSpec spec,
         LogFn log,
-        bool initialPrevEmitted)
+        bool initialPrevEmitted,
+        bool forceBodyEnd = false,
+        Func<bool>? isCancelled = null)
     {
         void EmitBlankPara()
         {
@@ -179,9 +208,27 @@ public static class HwpxWriter
             catch { /* 폰트 적용 실패 무시 — break_para 만이라도 시도 */ }
         }
 
+        // ★ 각 노드 렌더링 후 MoveDocEnd 로 본문(list 0) 끝으로 강제 복귀.
+        //   특정 렌더러의 박스 exit (ExitTableAndJustify) 가 누적 상태에서 셀 탈출에
+        //   실패해도 다음 노드는 항상 깨끗한 위치에서 시작. nesting 누적 회피.
+        //   ★ Cursor 모드 (X 단축키: 문서 중간 변환) 는 forceBodyEnd=false — 캐럿이
+        //     변환 위치에 머물러야 함 (MoveDocEnd 하면 캐럿이 문서 끝으로 튐).
+        void ForceBodyEnd()
+        {
+            if (!forceBodyEnd) return;
+            try { hwp.HAction.Run("MoveDocEnd"); }
+            catch { /* 무시 */ }
+        }
+
+        var cancelCheck = isCancelled ?? (() => false);
         bool lastWasEmit = initialPrevEmitted;
         foreach (var node in nodes)
         {
+            if (cancelCheck())
+            {
+                log("  ⚠ 사용자 강제 중지 요청 — dispatcher 종료");
+                return;
+            }
             if (node.Type == NodeType.Blank)
             {
                 if (lastWasEmit)
@@ -196,12 +243,14 @@ public static class HwpxWriter
             try
             {
                 DispatchOne(hwp, node, spec);
+                ForceBodyEnd();
                 lastWasEmit = true;
             }
             catch (Exception e)
             {
                 log($"  ✘ 노드 렌더링 실패 ({node.Type} marker={node.Marker.Repr()}): {e.Message}");
                 try { BreakPara(hwp); } catch { }
+                ForceBodyEnd();
                 lastWasEmit = true;
             }
         }
@@ -275,6 +324,60 @@ public static class HwpxWriter
         // 알 수 없는 타입 — 마커 없는 본문 처리
         if (!string.IsNullOrEmpty(node.Text))
             EmitUnmarkeredProse(hwp, spec, node.Text);
+    }
+
+    /// <summary>
+    /// STAGE 2 통합 — doc-wide 1 pass + 각 문단 안에서 (들·자·들) 즉시 처리.
+    /// Q 단축키 (RunAutoAlign) 의 combined 함수와 동일 로직.
+    ///
+    /// 본문(list 0) 만 순회. 박스 셀은 렌더러가 이미 배치한 상태라 skip.
+    /// 각 stage 사이 startPos 복원 — 자간조정의 wrap 위치 계산이 인덴트와 일치하게.
+    /// </summary>
+    private static void StageTwoCombined(dynamic hwp, Linter.LogFn log)
+    {
+        log("  [stage2] 본문 순회 시작");
+        hwp.HAction.Run("MoveDocEnd");
+        var endPos = Linter.Range.GetCaretPos(hwp);
+        hwp.HAction.Run("MoveDocBegin");
+
+        const int maxIter = 100_000;
+        int iters = 0;
+        int processed = 0;
+
+        while (iters < maxIter)
+        {
+            var prev = Linter.Range.GetCaretPos(hwp);
+            if (prev == endPos) break;
+
+            // 문단 시작 pos 저장 — 각 stage 후 복원용.
+            hwp.HAction.Run("MoveParaBegin");
+            var startPos = Linter.Range.GetCaretPos(hwp);
+
+            void Restore()
+            {
+                try { Linter.Range.SetCaretPos(hwp, startPos); }
+                catch { hwp.HAction.Run("MoveParaBegin"); }
+            }
+
+            // 1) 1차 들여쓰기 — line wrap 기준 확정 (없으면 자간 효과 죽음)
+            Linter.IndentAlign.ProcessParagraph(hwp, log);
+            // 2) 자간조정 — 확정된 wrap 위에서 어절 잘림 보정
+            Restore();
+            Linter.Kerning.AdjustParagraph(hwp, log);
+            // 3) 2차 들여쓰기 — 자간 drift 보정 (마지막 stage 가 캐럿을 다음 문단으로 이동)
+            Restore();
+            Linter.IndentAlign.ProcessParagraph(hwp, log);
+
+            var cur = Linter.Range.GetCaretPos(hwp);
+            if (cur == prev)
+            {
+                log("  [stage2 STOP] 진행 멈춤");
+                break;
+            }
+            processed++;
+            iters++;
+        }
+        log($"  [stage2] 본문 처리 완료 ({processed} 문단)");
     }
 
     /// <summary>

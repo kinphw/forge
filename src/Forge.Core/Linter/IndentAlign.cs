@@ -358,8 +358,12 @@ public static class IndentAlign
     // Public API
     // ────────────────────────────────────────────────────────────────────
 
-    /// <summary>본문 + 표 셀 등 객체 영역까지 모두 순회 (배치 모드 STAGE 2).</summary>
-    public static void AlignLeftIndent(dynamic hwp, LogFn? log = null)
+    /// <summary>
+    /// 본문 (+ 옵션: 표 셀 등 객체 영역) 순회 (배치 모드 STAGE 2).
+    /// includeObjects: false 면 객체 영역 skip — 마크다운 변환 후처리용.
+    /// 마크다운 박스 셀들은 렌더러가 이미 정확히 배치한 상태라 추가 indent 가 오히려 망침.
+    /// </summary>
+    public static void AlignLeftIndent(dynamic hwp, LogFn? log = null, bool includeObjects = true)
     {
         log ??= _ => { };
 
@@ -385,9 +389,16 @@ public static class IndentAlign
         }
         log($"[align_left_indent] 본문 처리 완료 ({iters} 문단)");
 
-        log("[align_left_indent] 객체 영역 순회 시작");
-        ProcessObjects(hwp, log);
-        log("[align_left_indent] 객체 영역 처리 완료");
+        if (includeObjects)
+        {
+            log("[align_left_indent] 객체 영역 순회 시작");
+            ProcessObjects(hwp, log);
+            log("[align_left_indent] 객체 영역 처리 완료");
+        }
+        else
+        {
+            log("[align_left_indent] 객체 영역 skip (includeObjects=false)");
+        }
     }
 
     /// <summary>selection 있으면 범위, 없으면 현재 문단 1개.</summary>

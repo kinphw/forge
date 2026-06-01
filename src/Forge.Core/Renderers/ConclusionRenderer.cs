@@ -17,7 +17,11 @@ public sealed class ConclusionRenderer : ElementRenderer
         var s = Spec;
 
         if (!IsAtLineStart(Hwp)) BreakPara(Hwp);
-        AlignPara(Hwp, Align.Right);
+        // ★ 2026-06-02: body 단락은 Justify. 기존엔 Right 였으나 진단 로그상
+        //   Right-aligned 단락에서 CloseEx 후 MoveLineDown 이 no-op → 캐럿이 박스
+        //   앞에 잔류 → 후속 BreakPara 가 박스 위 분할 → 박스가 끝으로 밀리는
+        //   cascade. 본문 폭(165mm) 대비 표 폭(159.5mm) 라 시각 차이 5.5mm 미미.
+        AlignPara(Hwp, Align.Justify);
 
         // 1×1 표 (가로 199.5 - 여백, 세로 18mm)
         double usableWidth = 199.5 - (s.Margins.Left + s.Margins.Right);

@@ -24,6 +24,10 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+
+    <!-- EXE 파일 자체의 아이콘 (Explorer / 바로가기 표시용).
+         .vscode/gen-icon.ps1 로 1회 생성. ForgeIcon.cs (runtime Form.Icon) 와 동일 디자인. -->
+    <ApplicationIcon>..\..\resources\forge.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

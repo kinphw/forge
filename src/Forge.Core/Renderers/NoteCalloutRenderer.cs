@@ -20,7 +20,10 @@ public sealed class NoteCalloutRenderer : ElementRenderer
         var s = Spec;
 
         if (!IsAtLineStart(Hwp)) BreakPara(Hwp);
-        AlignPara(Hwp, Align.Right);  // tool2: ParagraphShapeAlignRight
+        // ★ 2026-06-02: ConclusionRenderer 와 동일 사고 fix — Right-aligned body 단락에서
+        //   MoveLineDown no-op → 캐럿 박스 앞 잔류 → 박스 끝 displaced cascade.
+        //   Justify 로 변경. 시각 차이 미미 (5.5mm).
+        AlignPara(Hwp, Align.Justify);
 
         // 1×1 점선 표
         double usableWidth = 198 - (s.Margins.Left + s.Margins.Right);
