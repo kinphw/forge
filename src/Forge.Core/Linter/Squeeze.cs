@@ -110,6 +110,14 @@ public static class Squeeze
         while (down < max)
         {
             CaretPos before = Range.GetCaretPos(hwp);
+            // ★ 표 셀 등에서 MoveLineDown 이 셀 경계를 탈출하면 list 가 변함.
+            //   PosReachedOrPassed 는 list 다르면 false 만 반환 → 종료 못 잡고 문서 끝까지
+            //   스캔하는 치명 버그. list 이탈을 명시적으로 검사해 즉시 중단.
+            if (before.List != start.List)
+            {
+                log($"  [line] list 이탈 ({before.List} ≠ {start.List}) — 측정 중단, {down} 줄로 추정");
+                return Math.Max(1, down);
+            }
             if (PosReachedOrPassed(before, end))
             {
                 log($"  [line] {down + 1} 줄 (도달, before={before})");
@@ -179,6 +187,14 @@ public static class Squeeze
         Range.SetCaretPos(hwp, bodyStart.Value);
         hwp.Run("MoveParaEnd");
         CaretPos paraEnd = Range.GetCaretPos(hwp);
+
+        // ★ MoveParaEnd 가 셀/list 를 탈출하는 경우 (HWP 버전·상황에 따른 quirk) — abort.
+        //   계속하면 후속 측정/SpacingDecrease 가 잘못된 위치에 적용됨.
+        if (paraEnd.List != bodyStart.Value.List)
+        {
+            log($"[fit_to_one_line] MoveParaEnd 가 list 탈출 ({paraEnd.List} ≠ {bodyStart.Value.List}) — skip");
+            return;
+        }
 
         // 3. 줄 수 측정 — KeyIndicator 우선 (Python 동등), 실패 시 LineDiff fallback
         int initialLines = MeasureLineSpan(hwp, bodyStart.Value, paraEnd, log);
