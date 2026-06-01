@@ -148,6 +148,36 @@ public static class Squeeze
         return cur.Pos >= end.Pos;
     }
 
+    /// <summary>
+    /// 현재 문단의 "마지막 직전 줄" 시작 위치 반환 — bodyStart ~ paraEnd 안에서.
+    /// 호출 전 캐럿 위치는 무관 (내부에서 paraEnd 까지 이동 후 한 줄 위로).
+    /// 만약 직전 줄 시작이 bodyStart 보다 앞이면 (2-줄 문단 + 마커 영역 침범 케이스),
+    /// bodyStart 로 clamp.
+    /// </summary>
+    private static CaretPos ComputeSecondLastLineStart(dynamic hwp, CaretPos bodyStart, LogFn log)
+    {
+        Range.SetCaretPos(hwp, bodyStart);
+        hwp.Run("MoveParaEnd");
+        hwp.Run("MoveLineBegin");
+        // CaretPos lastLineStart = Range.GetCaretPos(hwp);  // 디버깅용
+        hwp.Run("MoveUp");
+        hwp.Run("MoveLineBegin");
+        CaretPos kernStart = Range.GetCaretPos(hwp);
+
+        // bodyStart 보다 앞이면 (마커 영역 침범) bodyStart 로 clamp
+        bool isBefore =
+            kernStart.List != bodyStart.List
+            || kernStart.Para < bodyStart.Para
+            || (kernStart.Para == bodyStart.Para && kernStart.Pos < bodyStart.Pos);
+        if (isBefore)
+        {
+            log($"  [kern-range] 직전 줄 시작 {kernStart} < bodyStart {bodyStart} — bodyStart 로 clamp");
+            return bodyStart;
+        }
+        log($"  [kern-range] 직전 줄 시작 = {kernStart}");
+        return kernStart;
+    }
+
     /// <summary>문단 마지막 줄의 본문 텍스트 (마커 영역 제외).</summary>
     private static string LastLineText(dynamic hwp, CaretPos bodyStart)
     {
@@ -219,7 +249,11 @@ public static class Squeeze
             return;
         }
 
-        // 5. SpacingDecrease 반복
+        // 5. SpacingDecrease 반복 — 마지막 직전 줄부터 paraEnd 까지만 자간 적용.
+        //    (예전: bodyStart → paraEnd 전체 → 3줄+ 문단의 앞줄들이 불필요하게 줄어 망가짐.)
+        //    매 iter 마다 자간 감소로 wrap 위치가 바뀌므로 "마지막 직전 줄 시작 위치" 재계산.
+        //    2-줄 문단의 경우 직전 줄 시작이 bodyStart 보다 앞쪽(마커 영역)으로 가버리니
+        //    bodyStart 로 clamp — 마커 자간은 보존.
         int target = initialLines - 1;
         int cur = initialLines;
         int noChangeCount = 0;
@@ -228,7 +262,8 @@ public static class Squeeze
 
         for (int i = 0; i < maxIters; i++)
         {
-            Range.SetCaretPos(hwp, bodyStart.Value);
+            CaretPos kernStart = ComputeSecondLastLineStart(hwp, bodyStart.Value, log);
+            Range.SetCaretPos(hwp, kernStart);
             hwp.Run("MoveSelParaEnd");
             hwp.Run("CharShapeSpacingDecrease");
             hwp.Run("Cancel");

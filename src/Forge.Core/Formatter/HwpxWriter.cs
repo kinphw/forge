@@ -247,7 +247,15 @@ public static class HwpxWriter
                 return;
             case NodeType.Callout:
             {
-                var lines = node.Children.Where(c => !string.IsNullOrEmpty(c.Text)).Select(c => c.Text).ToList();
+                // ★ child 의 .Text 만 뽑으면 파서가 분리한 Marker (○ * 등) 와 Summary
+                //   ((20.9.) 등) 가 사라지는 사고. 원문 라인 형태로 재조립.
+                //   예: Bullet(Marker="○", Summary="'20.9.", Text="구글이...")
+                //        → "○ ('20.9.) 구글이..." 로 복원해 callout renderer 에 plain
+                //          text 로 전달 (renderer 내부에서 __X__ bold 토큰은 InsertText 가 처리).
+                var lines = node.Children
+                    .Where(c => !string.IsNullOrEmpty(c.Text) || !string.IsNullOrEmpty(c.Marker))
+                    .Select(ReconstructCalloutLine)
+                    .ToList();
                 if (node.CalloutKind == "note")
                     new NoteCalloutRenderer(hwp, spec).Render(lines);
                 else
@@ -267,6 +275,21 @@ public static class HwpxWriter
         // 알 수 없는 타입 — 마커 없는 본문 처리
         if (!string.IsNullOrEmpty(node.Text))
             EmitUnmarkeredProse(hwp, spec, node.Text);
+    }
+
+    /// <summary>
+    /// Callout (참고/붙임) 박스 안에 child 를 plain 한 줄 텍스트로 복원.
+    /// 파서가 Bullet 패턴으로 분리한 Marker (○ □ - · * ※ 등) + Summary (괄호 안) +
+    /// Text 를 원문 그대로 합쳐 callout renderer 의 InsertText 한 번에 전달.
+    /// (callout 내부는 글머리 layout 안 입히고 plain 본문으로 보여주는 정책.)
+    /// </summary>
+    private static string ReconstructCalloutLine(Node c)
+    {
+        var sb = new System.Text.StringBuilder();
+        if (!string.IsNullOrEmpty(c.Marker)) sb.Append(c.Marker).Append(' ');
+        if (!string.IsNullOrEmpty(c.Summary)) sb.Append('(').Append(c.Summary).Append(") ");
+        sb.Append(c.Text);
+        return sb.ToString();
     }
 
     /// <summary>
