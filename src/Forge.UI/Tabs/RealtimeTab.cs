@@ -883,6 +883,14 @@ public sealed class RealtimeTab : TabPage
         if (_state.Hwp is null) return;
         Forge.Core.Linter.LogFn lg = msg => Log("  " + msg);
 
+        // 들여쓰기·자간만 조정하고 글자 수는 불변 (IndentAlign 은 ParagraphShapeIndentAtCaret,
+        // Kerning 은 CharShape — 둘 다 텍스트 삽입 없음). 캐럿만 있는 경우 (selection 없음,
+        // 따라서 빈줄 삽입 pre-pass 도 안 탐) 작업 후 원래 캐럿 위치로 복원한다.
+        object hwpObjForOrigin = (object)_state.Hwp.Hwp;
+        var selForOrigin = Forge.Core.Linter.Range.SelectionRange(hwpObjForOrigin);
+        Forge.Core.Linter.CaretPos? origin =
+            selForOrigin is null ? Forge.Core.Linter.Range.GetCaretPos(_state.Hwp.Hwp) : null;
+
         Forge.Core.Linter.ParaActionFn combined = (hwpObj, logArg) =>
         {
             dynamic h = hwpObj;
@@ -957,20 +965,62 @@ public sealed class RealtimeTab : TabPage
         {
             Forge.Core.Linter.Range.ApplyPerParagraph(_state.Hwp.Hwp, combined, lg);
         }
+
+        if (origin is not null)
+        {
+            try { Forge.Core.Linter.Range.SetCaretPos(_state.Hwp.Hwp, origin.Value); }
+            catch { ((dynamic)_state.Hwp.Hwp).HAction.Run("MoveParaBegin"); }
+        }
         Log("━━━━━━ 자동 정렬 완료 ━━━━━━");
     }
 
     public void RunWordPull()
     {
         if (_state.Hwp is null) return;
+        dynamic hwp = _state.Hwp.Hwp;
         Forge.Core.Linter.LogFn lg = msg => Log("  " + msg);
-        Forge.Core.Linter.Squeeze.FitCurrentParagraphToOneLine(_state.Hwp.Hwp, log: lg);
+
+        // 자간만 조정하고 글자 수는 불변 — 캐럿만 있을 땐 원위치 복원 (RunKerningReset 과 동일).
+        object hwpObj = hwp;
+        var sel = Forge.Core.Linter.Range.SelectionRange(hwpObj);
+        Forge.Core.Linter.CaretPos? origin =
+            sel is null ? Forge.Core.Linter.Range.GetCaretPos(hwp) : null;
+
+        Forge.Core.Linter.Squeeze.FitCurrentParagraphToOneLine(hwp, log: lg);
+
+        if (origin is not null)
+        {
+            try { Forge.Core.Linter.Range.SetCaretPos(hwp, origin.Value); }
+            catch { hwp.HAction.Run("MoveParaBegin"); }
+        }
     }
 
     public void RunKerningReset()
     {
         if (_state.Hwp is null) return;
-        Primitives.ResetKerningZero(_state.Hwp.Hwp);
+        dynamic hwp = _state.Hwp.Hwp;
+
+        // ★ dynamic dispatch 회피 — SelectionRange 는 object 로 정적 호출 (Range.cs 주석 참조).
+        object hwpObj = hwp;
+        var sel = Forge.Core.Linter.Range.SelectionRange(hwpObj);
+        if (sel is null)
+        {
+            // 캐럿만 있는 상태 — 현재 문단 전체를 선택해 자간 0 적용.
+            // 자간만 바꾸고 문단 구조는 불변이므로, 적용 전 캐럿 위치를 저장했다
+            // 적용 후 그대로 복원한다 (RunAutoAlign 의 Restore 와 동일 패턴).
+            var origin = Forge.Core.Linter.Range.GetCaretPos(hwp);
+            hwp.HAction.Run("MoveParaBegin");
+            hwp.HAction.Run("MoveSelParaEnd");
+            Primitives.ResetKerningZero(hwp);
+            hwp.HAction.Run("Cancel");
+            try { Forge.Core.Linter.Range.SetCaretPos(hwp, origin); }
+            catch { hwp.HAction.Run("MoveParaBegin"); }
+        }
+        else
+        {
+            // 선택영역이 있으면 그 범위에만 적용.
+            Primitives.ResetKerningZero(hwp);
+        }
     }
 
     public void RunParagraphSize8()

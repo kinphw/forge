@@ -148,6 +148,46 @@ public static class Squeeze
         return cur.Pos >= end.Pos;
     }
 
+    /// <summary>자간값 읽기 실패 sentinel — floor 판정에서 제외.</summary>
+    private const int SpacingUnknown = int.MinValue;
+
+    /// <summary>
+    /// 지정 위치 캐럿의 현재 한글 자간(%) 읽기. CharShape ParameterSet 의 SpacingHangul
+    /// (PIT_I1, 범위 -50%~50% — hwp-api CharShape id:13). 읽기 실패 시 SpacingUnknown.
+    ///
+    /// FitCurrentParagraphToOneLine 의 가독성 floor 판정용 — paraEnd 직전 글자는 매 iter
+    /// kernStart~paraEnd 자간 감소 영역에 항상 포함되므로 단조 감소 → 신뢰 가능한 probe.
+    ///
+    /// ★ collapsed 캐럿(at)에서 바로 GetDefault 하면 typing attribute 가 직전 값을 한 박자
+    ///   늦게 반영(stale)하는 경우가 있어 — 마지막 글자 1개를 실제 선택해 그 글자의 문서
+    ///   모델 값을 읽음. 단일 글자 선택이라 GetDefault 가 mixed-value sentinel 없이 정확값 반환.
+    /// PIT_I1 이 부호 없는 byte 로 넘어오는 경우(예: -30 → 226) 대비, 유효범위(-50~50)
+    /// 밖이면 256 보정해 부호 복원.
+    /// </summary>
+    private static int ReadSpacingHangul(dynamic hwp, CaretPos at, LogFn log)
+    {
+        try
+        {
+            Range.SetCaretPos(hwp, at);
+            hwp.Run("MoveSelPrevChar");   // 마지막 글자 1개 선택 (collapsed 캐럿 stale 회피)
+            var cs = hwp.HParameterSet.HCharShape;
+            hwp.HAction.GetDefault("CharShape", cs.HSet);
+            object? v = ((object)cs).GetType().InvokeMember(
+                "SpacingHangul", System.Reflection.BindingFlags.GetProperty, null, cs, null);
+            hwp.Run("Cancel");
+            if (v is null) return SpacingUnknown;
+            int n = Convert.ToInt32(v);
+            if (n > 50) n -= 256;   // 부호 없는 byte wraparound 복원
+            return n;
+        }
+        catch (Exception e)
+        {
+            log($"  [spacing-read] 실패 ({e.Message}) — fallback(줄수 plateau) 에 의존");
+            try { hwp.Run("Cancel"); } catch { /* 선택 정리 best-effort */ }
+            return SpacingUnknown;
+        }
+    }
+
     /// <summary>
     /// 현재 문단의 "마지막 직전 줄" 시작 위치 반환 — bodyStart ~ paraEnd 안에서.
     /// 호출 전 캐럿 위치는 무관 (내부에서 paraEnd 까지 이동 후 한 줄 위로).
@@ -196,7 +236,14 @@ public static class Squeeze
     ///
     /// 실시간 모드 (탭 ③) 전용. 배치 모드 후처리에서 호출 안 함.
     /// </summary>
-    public static void FitCurrentParagraphToOneLine(dynamic hwp, int maxIters = 30, LogFn? log = null)
+    /// <summary>
+    /// 과압축 방지 floor — 이 자간(%) 밑으로는 안 좁힘. 0~-50 사이.
+    /// "끝까지 합칠 때까지" 의도를 살리되 글자 겹침·가독성 파괴(한/글 물리 한계 -50%)는 회피.
+    /// ★ 시각 튜닝 knob — 더 공격적으로 합치려면 -50 쪽으로, 보수적이면 0 쪽으로.
+    /// </summary>
+    private const int MinSpacingPct = -30;
+
+    public static void FitCurrentParagraphToOneLine(dynamic hwp, int maxIters = 60, LogFn? log = null)
     {
         log ??= _ => { };
         log("[fit_to_one_line] 시작");
@@ -247,14 +294,36 @@ public static class Squeeze
         //    매 iter 마다 자간 감소로 wrap 위치가 바뀌므로 "마지막 직전 줄 시작 위치" 재계산.
         //    2-줄 문단의 경우 직전 줄 시작이 bodyStart 보다 앞쪽(마커 영역)으로 가버리니
         //    bodyStart 로 clamp — 마커 자간은 보존.
+        //
+        // ★ 종료 조건 (2026-06-04 — "줄 합쳐질 때까지 시도" 요청):
+        //    예전 noChangeLimit=8 은 "연속 8회 줄수 무변화" 추정으로, 마지막 줄 어절이
+        //    길어 자간을 9회+ 좁혀야 당겨지는 경우 미리 포기하는 문제가 있었음.
+        //    ★ 성공 판정은 그대로 "줄 수 측정"(newLines<=target). 자간값은 floor 판정에만 사용:
+        //     (a) 합쳐짐(newLines<=target) → 성공
+        //     (b) 가독성 floor(MinSpacingPct=-30%) 도달 → 과압축 방지 종료
+        //     (c) [fallback] 자간 read 실패 시에만 의미 있는 줄수 plateau 카운터 — read 정상
+        //         시엔 (b)(-30%, ~30회)가 항상 먼저라 발동 안 함. 무한루프 방지 backstop.
+        //     (d) [hard backstop] maxIters — UI 스레드 실행이라 프리징 절대 회피.
+        //    ※ "자간이 더 안 변하면 물리 바닥" 직접 종료(예전 c)는 제거. floor(-30%)가 물리
+        //       바닥(-50%)보다 위라 정상 시 절대 안 쓰이고, probe stale 시 -11% 등에서
+        //       오발화해 조기 종료시키기만 했음 (재호출하면 이어서 진행돼 합쳐지는 증상).
         int target = initialLines - 1;
         int cur = initialLines;
         int noChangeCount = 0;
-        const int noChangeLimit = 8;
-        log($"  target={target} 줄, max_iters={maxIters}, no-change limit={noChangeLimit}");
+        const int noChangeLimit = 35;   // fallback only — 정상 read 시 (b)(-30%)가 먼저 발동
+        int spacing = ReadSpacingHangul(hwp, paraEnd, log);   // 시작 자간 probe
+        log($"  target={target} 줄, max_iters={maxIters}, floor={MinSpacingPct}%, 시작 자간={spacing}%");
 
         for (int i = 0; i < maxIters; i++)
         {
+            // (b) 가독성 floor — 이미 바닥이면 더 안 좁히고 종료
+            if (spacing != SpacingUnknown && spacing <= MinSpacingPct)
+            {
+                log($"[fit_to_one_line] ⊘ 자간 floor({MinSpacingPct}%) 도달 — 과압축 방지 종료, " +
+                    $"현재 {cur} 줄 ({i} 회 적용 후)");
+                return;
+            }
+
             CaretPos kernStart = ComputeSecondLastLineStart(hwp, bodyStart.Value, log);
             Range.SetCaretPos(hwp, kernStart);
             hwp.Run("MoveSelParaEnd");
@@ -263,6 +332,7 @@ public static class Squeeze
 
             int newLines = MeasureLineSpan(hwp, bodyStart.Value, paraEnd, log);
 
+            // (a) 합쳐짐 → 성공
             if (newLines <= target)
             {
                 log($"  iter#{i + 1}: lines={newLines} ✔ 도달");
@@ -270,25 +340,29 @@ public static class Squeeze
                 return;
             }
 
+            spacing = ReadSpacingHangul(hwp, paraEnd, log);   // 다음 iter (b) floor 판정용 갱신
+
+            // (c) fallback: 줄수 plateau (자간 read 실패해 (b) 가 무력할 때만 의미)
             if (newLines >= cur)
             {
                 noChangeCount++;
-                log($"  iter#{i + 1}: lines={newLines} (no-change {noChangeCount}/{noChangeLimit})");
+                log($"  iter#{i + 1}: lines={newLines} spacing={spacing}% " +
+                    $"(no-change {noChangeCount}/{noChangeLimit})");
                 if (noChangeCount >= noChangeLimit)
                 {
-                    log($"[fit_to_one_line] ⚠ 연속 {noChangeLimit} 회 변화 없음 — 자간 한계, " +
-                        $"현재 {cur} 줄 ({i + 1} 회 SpacingDecrease 적용 후)");
+                    log($"[fit_to_one_line] ⚠ 연속 {noChangeLimit} 회 줄수 무변화(자간 read 실패 추정) — " +
+                        $"종료, 현재 {cur} 줄 ({i + 1} 회 적용 후)");
                     return;
                 }
             }
             else
             {
-                log($"  iter#{i + 1}: lines={newLines} (감소 {cur}→{newLines})");
+                log($"  iter#{i + 1}: lines={newLines} spacing={spacing}% (감소 {cur}→{newLines})");
                 cur = newLines;
                 noChangeCount = 0;
             }
         }
 
-        log($"[fit_to_one_line] ⚠ {maxIters} 회 시도, 최종 {cur} 줄 — 한계");
+        log($"[fit_to_one_line] ⚠ maxIters({maxIters}) 도달 — 종료, 최종 {cur} 줄");
     }
 }
