@@ -75,6 +75,94 @@ public static class Range
     }
 
     /// <summary>
+    /// selection (start~end) 범위 안에 앵커를 둔 인라인 개체(표·그리기 개체 등)의
+    /// 앵커 문단 번호 목록 (오름차순, 중복 제거). HeadCtrl ~ Next linked-list 순회 +
+    /// GetAnchorPos 범위 비교.
+    ///
+    /// ★ 용도: Ctrl+Shift+X 선택영역 md 변환이 표를 보존하도록 — 이 para 들을 경계로
+    ///   selection 을 텍스트 구간으로 분할, 표 문단은 변환에서 제외(원본 유지).
+    ///
+    /// ★ PIA(IHwpObject) cast 가 안 되는 환경(한/글 2018 등 — GetText state 4 감지
+    ///   불가)에서도 동작: HeadCtrl/Next/CtrlCh/GetAnchorPos 는 순수 dynamic dispatch.
+    ///   또한 '글자처럼 취급'(inline) 표·'개체'(floating) 표 모두 조판부호(앵커)가
+    ///   본문 list 에 있어 동일하게 잡힘 (한컴디벨로퍼 공식 답변 — 조판부호 위치 기준).
+    ///
+    /// 판별: CtrlCh == 11 = "그리기 개체 / 표" (HwpAutomation_2504 CtrlCh 표). 표(tbl)
+    /// + 모든 ShapeObject($pic/$rec/$ell/…) 포괄. secd(구역)/cold(단) 등 구조 컨트롤은
+    /// ch 가 달라 제외 — Delete 로 사라지지 않으므로 보존 대상 아님.
+    /// </summary>
+    public static List<int> CollectInlineObjectParas(dynamic hwp, CaretPos start, CaretPos end)
+    {
+        var paras = new SortedSet<int>();
+        try
+        {
+            // dynamic COM linked-list 순회 — null 체크는 while 조건이 보장하나 dynamic
+            // flow 분석이 못 따라가 CS8602 오탐. 억제.
+#pragma warning disable CS8602
+            dynamic ctrl = hwp.HeadCtrl;
+            int guard = 0;
+            while (ctrl != null && guard < 100_000)
+            {
+                int ch;
+                try { ch = (int)ctrl.CtrlCh; } catch { ch = -1; }
+                if (ch == 11)
+                {
+                    int? p = AnchorParaInRange(ctrl, start, end);
+                    if (p.HasValue) paras.Add(p.Value);
+                }
+                ctrl = ctrl.Next;
+                guard++;
+            }
+#pragma warning restore CS8602
+        }
+        catch { /* 순회 실패 시 빈 목록 — 기존 전체 변환으로 fallback */ }
+        return new List<int>(paras);
+    }
+
+    /// <summary>selection 범위 안에 인라인 개체(표 등)가 있는지 (CollectInlineObjectParas wrapper).</summary>
+    public static bool SelectionContainsInlineObject(dynamic hwp, CaretPos start, CaretPos end)
+        => CollectInlineObjectParas(hwp, start, end).Count > 0;
+
+    /// <summary>컨트롤 앵커(GetAnchorPos)가 selection [start, end] 범위 안이면 그 문단 번호, 아니면 null.</summary>
+    private static int? AnchorParaInRange(dynamic ctrl, CaretPos start, CaretPos end)
+    {
+        try
+        {
+            dynamic ap = ctrl.GetAnchorPos(0);
+            if (ap == null) return null;
+            int list = (int)ap.Item("List");
+            int para = (int)ap.Item("Para");
+            int pos = (int)ap.Item("Pos");
+
+            // 본문 list 범위 밖(표 셀 내부 list·머리말 등)은 selection 본문과 무관.
+            if (list < start.List || list > end.List) return null;
+            // 시작 list 에서 시작 위치보다 앞이면 제외.
+            if (list == start.List && (para < start.Para || (para == start.Para && pos < start.Pos)))
+                return null;
+            // 끝 list 에서 끝 위치보다 뒤면 제외.
+            if (list == end.List && (para > end.Para || (para == end.Para && pos > end.Pos)))
+                return null;
+            return para;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// [startPara, endPara] 문단 구간을 블록 선택 (같은 list 가정). startPara 문단
+    /// 처음부터 endPara 문단 끝까지. 검증된 MoveSel 액션(Kerning/IndentAlign 패턴) 기반:
+    /// MoveParaBegin → MoveSelNextParaBegin×N → MoveSelParaEnd.
+    /// </summary>
+    public static void SelectParaRange(dynamic hwp, int list, int startPara, int endPara)
+    {
+        SetCaretPos(hwp, new CaretPos(list, startPara, 0));
+        hwp.Run("MoveParaBegin");
+        int hops = endPara - startPara;
+        for (int i = 0; i < hops; i++)
+            hwp.Run("MoveSelNextParaBegin");
+        hwp.Run("MoveSelParaEnd");
+    }
+
+    /// <summary>
     /// selection 이 있으면 범위 내 모든 문단을 순회하며 fn 호출, 없으면 현재 문단 1개.
     ///
     /// fn 의 contract: 한 문단 처리 후 caret 이 다음 문단 시작 부근으로 이동

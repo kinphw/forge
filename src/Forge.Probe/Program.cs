@@ -31,6 +31,8 @@ var staThread = new Thread(() =>
             "insert"  => InsertOneLine(),
             "convert" => ConvertMarkdown(args),
             "diag"    => DiagnoseDispatch(),
+            "scan"    => DiagnoseSelectionScan(),
+            "mdconv"  => RunMdConvertSelection(),
             "font"    => DiagnoseSetFont(args),
             "font-routed" => DiagnoseSetFontRouted(args),
             _         => PrintUsage(),
@@ -279,6 +281,151 @@ static int DiagnoseDispatch()
     return 0;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// 선택 영역 GetText state 시퀀스 덤프 — 비파괴적 (Delete 안 함).
+// 표가 든 selection 이 실제로 어떤 GetText state 를 내는지 확인용.
+//   state: 2 일반텍스트 / 3 다음문단 / 4 제어문자(표·개체) 진입 / 5 탈출 / 0·1 종료
+// ─────────────────────────────────────────────────────────────────────────
+static int DiagnoseSelectionScan()
+{
+    HwpSession session;
+    try { session = HwpSessionHelpers.AttachOrCreate(visible: true, allowSpawn: false); }
+    catch (NoExistingHwpException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 2; }
+    catch (MultipleHwpInstancesException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 3; }
+    Console.WriteLine($"[scan] attach: {session.VersionName} #{session.InstanceIndex}");
+
+    dynamic hwp = session.Hwp;
+
+    object hwpObj = hwp;
+    var sel = Forge.Core.Linter.Range.SelectionRange(hwpObj);
+    Console.WriteLine($"[scan] SelectionRange = {(sel.HasValue ? $"{sel.Value.Start} → {sel.Value.End}" : "null (단일 캐럿/거짓음성)")}");
+
+    Console.WriteLine("[scan] --- InitScan(null, 0xff) + GetText 루프 (끝까지, break 안 함) ---");
+    if ((object)hwp is Forge.Interop.HwpObject.IHwpObject typed)
+    {
+        typed.InitScan(null, 0xff, null, null, null, null);
+        try
+        {
+            for (int i = 0; i < 500; i++)
+            {
+                int state = typed.GetText(out string chunk);
+                string preview = (chunk ?? "")
+                    .Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t");
+                if (preview.Length > 70) preview = preview.Substring(0, 70) + "…";
+                Console.WriteLine($"[scan] #{i,-3} state={state} len={chunk?.Length ?? 0} \"{preview}\"");
+                // 0/1/101/102 = 스캔 종료 — 그 외(2/3/4/5)는 계속 진행해 표가 무슨 state 인지 관찰.
+                if (state is 0 or 1 or 101 or 102)
+                {
+                    Console.WriteLine($"[scan] === 스캔 종료 (state={state}) ===");
+                    break;
+                }
+            }
+        }
+        finally { try { typed.ReleaseScan(); } catch { } }
+    }
+    else
+    {
+        Console.WriteLine("[scan] ✘ PIA cast 실패 — IHwpObject 아님 (GetTextFile fallback 경로)");
+    }
+
+    Console.WriteLine("[scan] --- HeadCtrl 순회 (문서 전체 컨트롤 + 앵커) ---");
+    try
+    {
+#pragma warning disable CS8602
+        dynamic ctrl = hwp.HeadCtrl;
+        int ci = 0;
+        while (ctrl != null && ci < 2000)
+        {
+            string ctrlId;
+            try { ctrlId = (string)ctrl.CtrlID; } catch { ctrlId = "(id?)"; }
+            int ctrlCh;
+            try { ctrlCh = (int)ctrl.CtrlCh; } catch { ctrlCh = -1; }
+            string anchorStr;
+            try
+            {
+                dynamic ap = ctrl.GetAnchorPos(0);
+                anchorStr = ap == null
+                    ? "null"
+                    : $"({(int)ap.Item("List")},{(int)ap.Item("Para")},{(int)ap.Item("Pos")})";
+            }
+            catch (Exception e) { anchorStr = $"err:{e.Message}"; }
+            Console.WriteLine($"[scan]   ctrl#{ci} id='{ctrlId}' ch={ctrlCh} anchor={anchorStr}");
+            ctrl = ctrl.Next;
+            ci++;
+        }
+#pragma warning restore CS8602
+        Console.WriteLine($"[scan]   총 {ci} 컨트롤");
+    }
+    catch (Exception e) { Console.WriteLine($"[scan]   HeadCtrl 순회 실패: {e.GetType().Name}: {e.Message}"); }
+
+    if (sel.HasValue)
+    {
+        bool hasObj = Forge.Core.Linter.Range.SelectionContainsInlineObject(hwp, sel.Value.Start, sel.Value.End);
+        Console.WriteLine($"[scan] >>> SelectionContainsInlineObject = {hasObj} (true 면 변환 거부 대상) <<<");
+    }
+
+    Console.WriteLine("[scan] --- 현재 Primitives.GetSelectionText 결과 (수정본) ---");
+    string raw = Forge.Core.Renderers.Primitives.GetSelectionText(hwpObj, out bool containsObject);
+    Console.WriteLine($"[scan] len={raw.Length} containsObject={containsObject}");
+    Console.WriteLine($"[scan] 추출 텍스트 ↓↓↓\n{raw}\n[scan] ↑↑↑ 끝");
+
+    return 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 선택 영역 md 변환 실측 — Ctrl+Shift+X 와 동일 경로. 변환 전후 표(tbl) 컨트롤
+// 개수를 세어 표 보존 여부를 정량 검증.
+// ─────────────────────────────────────────────────────────────────────────
+static int RunMdConvertSelection()
+{
+    HwpSession session;
+    try { session = HwpSessionHelpers.AttachOrCreate(visible: true, allowSpawn: false); }
+    catch (NoExistingHwpException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 2; }
+    catch (MultipleHwpInstancesException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 3; }
+    Console.WriteLine($"[mdconv] attach: {session.VersionName} #{session.InstanceIndex}");
+    dynamic hwp = session.Hwp;
+
+    int before = CountTables(hwp);
+    Console.WriteLine($"[mdconv] 변환 전 표(tbl) 컨트롤: {before}");
+
+    try
+    {
+        Forge.Core.Formatter.HwpxWriter.LogFn lg = msg => Console.WriteLine($"  {msg}");
+        int n = Forge.Core.Formatter.HwpxWriter.ConvertSelectionToHwpx(hwp, ReportSpec.Report1, lg);
+        Console.WriteLine($"[mdconv] 변환 결과: {n} 노드");
+    }
+    catch (Forge.Core.Formatter.NoSelectionException ex)
+    {
+        Console.WriteLine($"[mdconv] 변환 거부(NoSelectionException): {ex.Message}");
+    }
+
+    int after = CountTables(hwp);
+    string verdict = after >= before ? "✔ 표 보존 OK" : $"✘ 표 손실! ({before} → {after})";
+    Console.WriteLine($"[mdconv] 변환 후 표(tbl) 컨트롤: {after}  → {verdict}");
+    return 0;
+}
+
+// HeadCtrl ~ Next 순회로 표(CtrlID=="tbl") 컨트롤 개수 카운트.
+static int CountTables(dynamic hwp)
+{
+    int count = 0;
+    try
+    {
+#pragma warning disable CS8602
+        dynamic ctrl = hwp.HeadCtrl;
+        int guard = 0;
+        while (ctrl != null && guard < 100000)
+        {
+            try { if ((string)ctrl.CtrlID == "tbl") count++; } catch { }
+            ctrl = ctrl.Next;
+            guard++;
+        }
+#pragma warning restore CS8602
+    }
+    catch { }
+    return count;
+}
+
 static int PrintUsage()
 {
     Console.WriteLine("Forge.Probe — PoC + 진단 도구");
@@ -286,6 +433,8 @@ static int PrintUsage()
     Console.WriteLine("  list                            — ROT 한/글 인스턴스 나열 (기본)");
     Console.WriteLine("  insert                          — 첫 인스턴스에 텍스트 1줄 삽입");
     Console.WriteLine("  convert <in.md> [<out.hwpx>]    — md → 새 hwpx (W2 검증)");
+    Console.WriteLine("  scan                            — 현재 selection 의 컨트롤·텍스트 덤프 (비파괴)");
+    Console.WriteLine("  mdconv                          — 현재 selection md 변환 + 표 보존 검증");
     Console.WriteLine("  font <fontName> [<sizePt>]      — raw 7면 TTF set 스모크테스트");
     Console.WriteLine("  font-routed <fontName> [<sizePt>]");
     Console.WriteLine("                                  — Primitives.SetFont 라우팅 호출 (휴먼명조 → HFT dispatch)");

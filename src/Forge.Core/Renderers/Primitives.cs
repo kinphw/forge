@@ -712,8 +712,22 @@ public static class Primitives
     /// PIA typed cast (IHwpObject.GetText(out string) → int state) 1차. 실패 시에만
     /// GetTextFile fallback (보안 다이얼로그 가능 — PIA cast 가 되는 환경에선 도달 안 함).
     /// </summary>
-    public static string GetSelectionText(dynamic hwp)
+    public static string GetSelectionText(dynamic hwp) => GetSelectionText(hwp, out bool _);
+
+    /// <summary>
+    /// <see cref="GetSelectionText(dynamic)"/> + 선택 영역 안에 표·이미지·도형 등
+    /// 서브리스트 개체가 포함됐는지 (<paramref name="containsObject"/>) 함께 보고.
+    ///
+    /// ★ 개체 감지 근거: GetText state 4 = "제어문자 내부로 들어감"
+    ///   (HwpAutomation_2504 p.23 GetText 명세). 표/그리기 개체 등 서브리스트를 가진
+    ///   extended 컨트롤에 진입할 때 발생. 강제줄나눔·탭·문단끝 같은 char 컨트롤은
+    ///   state 4 를 유발하지 않고 텍스트(\t, CR/LF)로 인라인 표현되므로 (동일 명세 +
+    ///   tool2 블록텍스트 option=1 검증) false positive 가 아님.
+    ///   → 호출부(ConvertSelectionToHwpx)가 개체 포함 시 Delete 를 막아 원본 보존.
+    /// </summary>
+    public static string GetSelectionText(dynamic hwp, out bool containsObject)
     {
+        containsObject = false;
         try
         {
             if ((object)hwp is IHwpObject typed)
@@ -722,7 +736,10 @@ public static class Primitives
                 var sb = new System.Text.StringBuilder();
                 try
                 {
-                    // state: 2=본문 텍스트, 3=표/개체 내 텍스트 (계속). 그 외 = 스캔 끝.
+                    // GetText state (HwpAutomation_2504 p.23):
+                    //   2 = 일반 텍스트, 3 = 다음 문단 → 본문 누적.
+                    //   4 = 제어문자(표/그리기 개체 등 서브리스트) 내부 진입 → 개체 표시.
+                    //   0/1/5/101/102 = 스캔 종료/리스트 끝/컨트롤 탈출/오류 → 루프 종료.
                     // guard — 비정상 상태에서 무한 루프 방지.
                     for (int i = 0; i < 100000; i++)
                     {
@@ -730,7 +747,10 @@ public static class Primitives
                         if (state == 2 || state == 3)
                             sb.Append(chunk);
                         else
+                        {
+                            if (state == 4) containsObject = true;
                             break;
+                        }
                     }
                 }
                 finally

@@ -459,15 +459,43 @@ public static class HwpxWriter
         var sel = Linter.Range.SelectionRange(hwpObj);
         log($"[md-convert] selection_range = {(sel.HasValue ? sel.Value.ToString() : "null")}");
 
-        // 1) 선택 블록 텍스트 추출 — InitScan/GetText (메모리 스캔).
-        //    ★ GetTextFile("UNICODE","saveblock") 직접 호출 금지 — 내부 SaveBlockAction 이
-        //      한컴 보안 정책("보안 정책상 사용할 수 없는 기능입니다.") 을 발동시킴.
-        //      GetSelectionText 가 tool2 블록텍스트(InitScan/GetText) 로 우회 + 다중 문단 누적.
-        //    한계: 개체 선택 상태 (표/이미지/도형) 에서는 동작 안 함.
+        // ★ 선택 영역에 표·그리기 개체가 있으면 그 조판부호(앵커) 문단을 수집.
+        //   '글자처럼 취급'(inline) 표·'개체'(floating) 표 모두 본문 list 에 조판부호가
+        //   있어 동일하게 잡힘. (한컴디벨로퍼 공식 답변 + 사용자 실측 검증 2026-06-12)
+        //   plain text 추출(GetTextFile)은 표 구조를 복원 못 하고, Run("Delete") 는 표를
+        //   통째 지움 → 표를 변환 대상에서 제외(보존)해야 함.
+        var tableParas = new List<int>();
+        if (sel.HasValue)
+        {
+            try { tableParas = Linter.Range.CollectInlineObjectParas(hwp, sel.Value.Start, sel.Value.End); }
+            catch (Exception e) { log($"[md-convert] 개체 순회 실패(무시): {e.Message}"); }
+        }
+
+        if (tableParas.Count > 0 && sel.HasValue)
+        {
+            // 표/개체 보존 — 표 문단을 경계로 텍스트 구간만 분할 변환.
+            return ConvertSelectionPreservingObjects(
+                hwp, spec, log, sel.Value.Start, sel.Value.End, tableParas);
+        }
+
+        // 표 없음 (또는 sel 거짓음성) — 선택 영역 전체를 한 번에 변환 (기존 경로).
+        return ConvertSelectionWhole(hwp, spec, log, sel is not null);
+    }
+
+    /// <summary>
+    /// 선택 영역 전체를 한 번에 변환 — 표/개체가 없는 경우. (기존 동작)
+    /// </summary>
+    private static int ConvertSelectionWhole(dynamic hwp, ReportSpec spec, LogFn log, bool selDetected)
+    {
+        // 선택 블록 텍스트 추출 — InitScan/GetText (메모리 스캔), 실패 시 GetTextFile fallback.
+        //   ★ GetTextFile("UNICODE","saveblock") 직접 호출 금지 — 내부 SaveBlockAction 이
+        //     한컴 보안 정책을 발동시킴. GetSelectionText 가 우회 + 다중 문단 누적.
         string raw;
+        bool containsObject;
         try
         {
-            raw = GetSelectionText(hwp);
+            // ★ (object) 캐스팅 — dynamic dispatch 시 out 파라미터 런타임 바인딩이 불안정.
+            raw = GetSelectionText((object)hwp, out containsObject);
         }
         catch (Exception e)
         {
@@ -476,8 +504,18 @@ public static class HwpxWriter
                 "선택 영역 텍스트 추출 실패 — 한/글 selection 상태를 확인해 주세요.", e);
         }
 
+        // sel 거짓음성(GetSelectedPos 실패)이라 표 para 수집을 못 했는데 PIA 경로로 개체가
+        // 잡힌 경우 — 구간 분할이 불가하므로 표 손실을 막기 위해 거부.
+        if (containsObject)
+        {
+            log("[md-convert] ⚠ 선택 영역에 표/개체 포함 (범위 미상) — 변환 거부 (원본 보존)");
+            throw new NoSelectionException(
+                "선택 영역에 표·이미지 등 개체가 포함되어 있어 변환할 수 없습니다.\n" +
+                "• 표·이미지·도형을 제외하고 본문 텍스트만 선택한 뒤 다시 시도해 주세요.");
+        }
+
         var text = raw.TrimEnd();
-        log($"[md-convert] GetTextFile 결과 = {text.Length}자");
+        log($"[md-convert] 추출 텍스트 = {text.Length}자");
 
         if (text.Length == 0)
             throw new NoSelectionException(
@@ -486,25 +524,93 @@ public static class HwpxWriter
                 "• 단순 캐럿 위치만으로는 동작하지 않습니다.\n" +
                 "• 표·이미지 등 개체 선택 상태에서도 동작하지 않습니다.");
 
-        if (sel is null)
-            log("[md-convert] ⚠ GetSelectedPos 거짓음성 — GetTextFile 결과로 진행");
+        if (!selDetected)
+            log("[md-convert] ⚠ GetSelectedPos 거짓음성 — 추출 텍스트로 진행");
 
-        // 2) 영역 삭제 — caret 이 그 자리에 남음
         log("[md-convert] 선택 영역 삭제 (Run='Delete')");
         hwp.Run("Delete");
 
-        // 3) 파싱 + cursor 모드 변환
         var doc = Parser.Parse(text);
         log($"[md-convert] parse: 본문 노드 {doc.Nodes.Count}개");
-        GenerateHwpxViaCom(
-            hwp, doc,
-            outPath: "",
-            spec: spec,
-            log: log,
-            mode: HwpxWriteMode.Cursor);
+        GenerateHwpxViaCom(hwp, doc, outPath: "", spec: spec, log: log, mode: HwpxWriteMode.Cursor);
 
         log($"[md-convert] ✔ 변환 완료 ({doc.Nodes.Count} 노드)");
         return doc.Nodes.Count;
+    }
+
+    /// <summary>
+    /// 표/개체를 보존하며 선택 영역을 변환 — 표 조판부호 문단을 경계로 selection 을
+    /// 텍스트 구간으로 쪼개고, 표 문단은 건드리지 않은 채 각 구간만 변환.
+    ///
+    /// ★ 역순(아래→위) 처리: 한 구간 변환은 그보다 아래 문단 번호를 바꾸므로, 아래부터
+    ///   처리하면 아직 처리 안 한 위쪽 구간·표의 절대 문단 번호가 보존됨.
+    /// ★ 단일 list(start.List == end.List) 가정 — 일반적인 본문 선택. 표 셀에 걸친
+    ///   다중 list 선택은 SelectParaRange 가 본문 list 만 다뤄 보수적으로 동작.
+    /// </summary>
+    private static int ConvertSelectionPreservingObjects(
+        dynamic hwp, ReportSpec spec, LogFn log,
+        Linter.CaretPos start, Linter.CaretPos end, List<int> tableParas)
+    {
+        log($"[md-convert] 표/개체 {tableParas.Count}개 보존 — 구간 분할 변환 " +
+            $"(표 문단: {string.Join(",", tableParas)})");
+
+        int list = start.List;
+
+        // 표 문단을 경계로 텍스트 구간 [s, e] 분할 (표 문단 자체는 제외).
+        var segments = new List<(int s, int e)>();
+        int cur = start.Para;
+        foreach (int t in tableParas)  // 오름차순
+        {
+            if (cur <= t - 1) segments.Add((cur, t - 1));
+            cur = t + 1;
+        }
+        if (cur <= end.Para) segments.Add((cur, end.Para));
+
+        log($"[md-convert] 텍스트 구간 {segments.Count}개: " +
+            string.Join(" ", segments.ConvertAll(s => $"[{s.s}~{s.e}]")));
+
+        int total = 0;
+        // 역순 — 아래 구간부터 변환해 위쪽 문단 번호 보존.
+        for (int i = segments.Count - 1; i >= 0; i--)
+        {
+            var (s, e) = segments[i];
+            try
+            {
+                Linter.Range.SelectParaRange(hwp, list, s, e);
+            }
+            catch (Exception ex)
+            {
+                log($"[md-convert] 구간 [{s}~{e}] 선택 실패: {ex.Message} — skip");
+                continue;
+            }
+
+            string raw;
+            try { raw = GetSelectionText((object)hwp, out _); }
+            catch (Exception ex)
+            {
+                log($"[md-convert] 구간 [{s}~{e}] 추출 실패: {ex.Message} — skip");
+                try { hwp.Run("Cancel"); } catch { }
+                continue;
+            }
+
+            var text = raw.TrimEnd();
+            if (text.Length == 0)
+            {
+                // 표 사이 빈 줄 구간 — 변환/삭제 없이 그대로 보존.
+                log($"[md-convert] 구간 [{s}~{e}] 빈 텍스트 — 보존 (skip)");
+                try { hwp.Run("Cancel"); } catch { }
+                continue;
+            }
+
+            log($"[md-convert] 구간 [{s}~{e}] 변환 ({text.Length}자)");
+            hwp.Run("Delete");
+            var doc = Parser.Parse(text);
+            GenerateHwpxViaCom(hwp, doc, outPath: "", spec: spec, log: log, mode: HwpxWriteMode.Cursor);
+            total += doc.Nodes.Count;
+        }
+
+        log($"[md-convert] ✔ 표 보존 변환 완료 (총 {total} 노드, 표/개체 {tableParas.Count}개 유지)");
+        return total;
     }
 }
 
