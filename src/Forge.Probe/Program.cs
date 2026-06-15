@@ -369,6 +369,15 @@ static int DiagnoseSelectionScan()
     Console.WriteLine($"[scan] len={raw.Length} containsObject={containsObject}");
     Console.WriteLine($"[scan] 추출 텍스트 ↓↓↓\n{raw}\n[scan] ↑↑↑ 끝");
 
+    // 비공백 문자의 codepoint 덤프 — 네모숫자 등 HWP 기호의 실제 U+ 값 확인용.
+    //   Rune 기반이라 보충문자(U+1F000+, surrogate pair)도 정확히 한 항목으로 출력.
+    Console.WriteLine("[scan] 비공백 문자 codepoints:");
+    foreach (var rune in raw.EnumerateRunes())
+    {
+        if (System.Text.Rune.IsWhiteSpace(rune)) continue;
+        Console.WriteLine($"         '{rune}' U+{rune.Value:X4}");
+    }
+
     return 0;
 }
 
