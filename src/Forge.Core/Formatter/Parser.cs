@@ -60,8 +60,11 @@ public static class Parser
     // GFM 표 — 행은 `|...|` (양끝 `|` 필수), 구분선은 `|---|---|...|` 또는 정렬 표기
     private static readonly Regex TableRowRegex =
         new(@"^\s*\|.+\|\s*$", RegexOptions.Compiled);
+    // 구분선 셀은 하이픈 1개 이상 (`:?-+:?`). GFM 표준은 셀당 하이픈 최소 1개를 허용하며,
+    // prettier 등 포매터가 헤더 폭에 맞춰 `--`(2개)로 줄이는 경우가 흔함 — `-{3,}` 는 그런
+    // 표를 인식 못 해 일반 텍스트로 떨어뜨림 (사용자 보고 2026-06-15).
     private static readonly Regex TableSepRegex =
-        new(@"^\s*\|(\s*:?-{3,}:?\s*\|)+\s*$", RegexOptions.Compiled);
+        new(@"^\s*\|(\s*:?-+:?\s*\|)+\s*$", RegexOptions.Compiled);
 
     // ──────────────────────────────────────────────────────────────────────
     // Public API

@@ -33,6 +33,7 @@ var staThread = new Thread(() =>
             "diag"    => DiagnoseDispatch(),
             "scan"    => DiagnoseSelectionScan(),
             "mdconv"  => RunMdConvertSelection(),
+            "parse"   => ParseMarkdownFile(args),
             "font"    => DiagnoseSetFont(args),
             "font-routed" => DiagnoseSetFontRouted(args),
             _         => PrintUsage(),
@@ -369,6 +370,17 @@ static int DiagnoseSelectionScan()
     Console.WriteLine($"[scan] len={raw.Length} containsObject={containsObject}");
     Console.WriteLine($"[scan] 추출 텍스트 ↓↓↓\n{raw}\n[scan] ↑↑↑ 끝");
 
+    // 줄 단위 분해 — 줄바꿈 보존/형태 확인 (표 인식은 줄 분리에 의존).
+    var splitLines = raw.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+    Console.WriteLine($"[scan] 줄 수: {splitLines.Length}");
+    for (int li = 0; li < splitLines.Length && li < 40; li++)
+        Console.WriteLine($"[scan]   line[{li}] len={splitLines[li].Length} \"{splitLines[li]}\"");
+
+    // 추출 텍스트를 그대로 Parser 에 통과 — X 변환과 동일 경로의 파싱 결과.
+    var pdoc = Forge.Core.Formatter.Parser.Parse(raw.TrimEnd());
+    Console.WriteLine($"[scan] Parser.Parse → {pdoc.Nodes.Count} 노드: " +
+        string.Join(", ", pdoc.Nodes.Select(n => n.Type.ToString())));
+
     // 비공백 문자의 codepoint 덤프 — 네모숫자 등 HWP 기호의 실제 U+ 값 확인용.
     //   Rune 기반이라 보충문자(U+1F000+, surrogate pair)도 정확히 한 항목으로 출력.
     Console.WriteLine("[scan] 비공백 문자 codepoints:");
@@ -433,6 +445,39 @@ static int CountTables(dynamic hwp)
     }
     catch { }
     return count;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 파서 진단 — md 파일을 Parser.Parse 해 노드 타입을 덤프 (한/글 불필요, 순수 함수).
+// 표 인식 등 파싱 동작 확인용.
+// ─────────────────────────────────────────────────────────────────────────
+static int ParseMarkdownFile(string[] args)
+{
+    if (args.Length < 2)
+    {
+        Console.Error.WriteLine("[probe] usage: parse <file.md>");
+        return 64;
+    }
+    var path = Path.GetFullPath(args[1]);
+    if (!File.Exists(path)) { Console.Error.WriteLine($"[probe] 파일 없음: {path}"); return 66; }
+
+    var src = File.ReadAllText(path);
+    var doc = Parser.Parse(src);
+    Console.WriteLine($"[parse] {path}");
+    Console.WriteLine($"[parse] {doc.Nodes.Count} 노드:");
+    foreach (var n in doc.Nodes)
+    {
+        if (n.Type == NodeType.Table)
+            Console.WriteLine($"  ★ Table — headers={n.Headers.Count} rows={n.Rows.Count} " +
+                $"aligns=[{string.Join(",", n.Aligns)}]");
+        else
+        {
+            var t = n.Text ?? "";
+            if (t.Length > 40) t = t[..40] + "…";
+            Console.WriteLine($"  {n.Type} marker='{n.Marker}' text='{t}'");
+        }
+    }
+    return 0;
 }
 
 static int PrintUsage()
