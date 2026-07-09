@@ -43,6 +43,9 @@ public sealed class RealtimeTab : TabPage
     public double Font4Size { get; private set; } = 15.0;
     public double BlankSize { get; private set; } = 8.0;
 
+    /// <summary>E 현재 문단 장평 (글자 가로 비율 %, 50~200). 기본 95.</summary>
+    public double CharWidthRatio { get; private set; } = 95.0;
+
     /// <summary>Q 자동정렬 pre-pass — 마커 문단 연속 시 사이에 빈줄(BlankSize) 자동 삽입.</summary>
     public bool BlankBetweenMarkers { get; private set; } = false;
 
@@ -54,6 +57,7 @@ public sealed class RealtimeTab : TabPage
     private readonly ComboBox[] _fontCombos = new ComboBox[4];
     private readonly TextBox[]  _fontSizes  = new TextBox[4];
     private TextBox _blankSizeBox = null!;
+    private TextBox _charRatioBox = null!;
 
     private TextBox _logOutput = null!;
     private GlobalHotkeyManager? _hotkeys;
@@ -100,6 +104,7 @@ public sealed class RealtimeTab : TabPage
         Font3Size = GetDouble(rt, "size3", Font3Size);
         Font4Size = GetDouble(rt, "size4", Font4Size);
         BlankSize = GetDouble(rt, "blank_size", BlankSize);
+        CharWidthRatio = GetDouble(rt, "char_width_ratio", CharWidthRatio);
         BlankBetweenMarkers = GetBool(rt, "q_blank_between_markers", BlankBetweenMarkers);
     }
 
@@ -344,6 +349,7 @@ public sealed class RealtimeTab : TabPage
         ["md_convert_sel"]  = 9,
         ["margin_capture"]  = 10,
         ["margin_apply"]    = 11,
+        ["char_width_ratio"] = 12,
     };
 
     /// <summary>
@@ -493,6 +499,7 @@ public sealed class RealtimeTab : TabPage
         Font3Name = "HY헤드라인M"; Font3Size = 15.0;
         Font4Name = "HY울릉도M";   Font4Size = 15.0;
         BlankSize = 8.0;
+        CharWidthRatio = 95.0;
         BlankBetweenMarkers = false;
 
         // pending debounce 폐기 — reset 직전의 미반영 변경이 살아남는 사고 방지
@@ -513,6 +520,7 @@ public sealed class RealtimeTab : TabPage
             if (_fontSizes[i]  is not null) _fontSizes[i].Text  = fontSizes[i].ToString("0.#");
         }
         if (_blankSizeBox is not null) _blankSizeBox.Text = BlankSize.ToString("0.#");
+        if (_charRatioBox is not null) _charRatioBox.Text = CharWidthRatio.ToString("0.#");
         if (_qBlankBetween is not null) _qBlankBetween.Checked = BlankBetweenMarkers;
 
         // 단축키 letter + status 라벨 + Win32 재등록
@@ -547,10 +555,10 @@ public sealed class RealtimeTab : TabPage
         {
             Text = "현재 캐럿 또는 선택영역에 적용",
             AutoSize = false,
-            // 14 button 행 (~36px each, AutoSize RowStyle 보장) + separator × 3 (~14px) +
+            // 15 button 행 (~36px each, AutoSize RowStyle 보장) + separator × 3 (~14px) +
             // GroupBox header/padding (~30) — 부족 시 행 잘림 사고.
             // (AutoSize=true 는 grid Dock=Fill 과 circular sizing → 시도 금지.)
-            Height = 640,
+            Height = 690,
             MinimumSize = new Size(640, 0),
             Margin = new Padding(0, 0, 0, ForgeTheme.Pad),
         };
@@ -597,39 +605,45 @@ public sealed class RealtimeTab : TabPage
             null, hkIndex: 6,
             tooltip: "빈줄 용 글자크기 설정 (자간 꼬임 회피)");
 
-        // 행 6: 헤드라인 폰트 (F)
-        AddRow(grid, 6, "폰트·크기 (헤드라인)",
+        // 행 6: 현재 문단 장평 (E) — para_size(D) 의 쌍둥이 (현재 문단 + 값 입력)
+        AddRow(grid, 6, "현재 문단 → 장평",
+            BuildCharRatioCluster(CharWidthRatio, r => { CharWidthRatio = r; QueuePersist("char_width_ratio", r); }),
+            null, hkIndex: 11,
+            tooltip: "현재 문단 전체 글자 장평(가로 비율)을 우측 값(%)으로 설정. 50~200 범위.");
+
+        // 행 7: 헤드라인 폰트 (F)
+        AddRow(grid, 7, "폰트·크기 (헤드라인)",
             BuildFontCluster(2, Font3Name, Font3Size, (n, s) => { Font3Name = n; Font3Size = s; QueuePersist("font3", n); QueuePersist("size3", s); }),
             null, hkIndex: 4,
             tooltip: "선택영역 폰트·크기 (헤드라인) — 우측 입력값 적용");
 
-        // 행 7: 울릉도 폰트 (G)
-        AddRow(grid, 7, "폰트·크기 (울릉도)",
+        // 행 8: 울릉도 폰트 (G)
+        AddRow(grid, 8, "폰트·크기 (울릉도)",
             BuildFontCluster(3, Font4Name, Font4Size, (n, s) => { Font4Name = n; Font4Size = s; QueuePersist("font4", n); QueuePersist("size4", s); }),
             null, hkIndex: 5,
             tooltip: "선택영역 폰트·크기 (울릉도) — 우측 입력값 적용");
 
-        // 행 8: separator
-        AddSeparator(grid, 8);
+        // 행 9: separator
+        AddSeparator(grid, 9);
 
-        // 행 9: 자간 0 (Z)
-        AddRow(grid, 9, "자간 0 초기화", null, null, hkIndex: 7,
+        // 행 10: 자간 0 (Z)
+        AddRow(grid, 10, "자간 0 초기화", null, null, hkIndex: 7,
             tooltip: "선택영역 자간 0% 으로 reset");
 
-        // 행 10: 선택→md (X)
-        AddRow(grid, 10, "선택영역 → 마크다운 변환", null, null, hkIndex: 8,
+        // 행 11: 선택→md (X)
+        AddRow(grid, 11, "선택영역 → 마크다운 변환", null, null, hkIndex: 8,
             tooltip: "선택 영역의 plain 텍스트를 md 로 해석해 그 자리 변환");
 
-        // 행 11: separator
-        AddSeparator(grid, 11);
+        // 행 12: separator
+        AddSeparator(grid, 12);
 
-        // 행 12: 여백 캡쳐 (기본 단축키 빈칸)
-        AddRow(grid, 12, "여백 캡쳐 (현재 문서 → 클립보드)", null, null, hkIndex: 9,
+        // 행 13: 여백 캡쳐 (기본 단축키 빈칸)
+        AddRow(grid, 13, "여백 캡쳐 (현재 문서 → 클립보드)", null, null, hkIndex: 9,
             tooltip: "현재 한/글 문서의 6변 여백 (Left/Right/Top/Bottom/Header/Footer) 을\n" +
                      "세션 클립보드에 저장 (앱 종료 시 휘발).");
 
-        // 행 13: 여백 적용 (기본 단축키 빈칸)
-        AddRow(grid, 13, "여백 적용 (클립보드 → 현재 문서)", null, null, hkIndex: 10,
+        // 행 14: 여백 적용 (기본 단축키 빈칸)
+        AddRow(grid, 14, "여백 적용 (클립보드 → 현재 문서)", null, null, hkIndex: 10,
             tooltip: "클립보드에 저장된 여백을 현재 한/글 문서 전체에 적용.");
 
         box.Controls.Add(grid);
@@ -733,6 +747,20 @@ public sealed class RealtimeTab : TabPage
         var pt = new Label { Text = "pt", AutoSize = true, ForeColor = ForgeTheme.TextMuted, Margin = new Padding(4, 6, 0, 0), Font = ForgeTheme.Small() };
         p.Controls.Add(size);
         p.Controls.Add(pt);
+        return p;
+    }
+
+    /// <summary>장평 값 cluster — [TextBox: %] (행 6). _charRatioBox 에 ref 저장.</summary>
+    private Control BuildCharRatioCluster(double initVal, Action<double> onChange)
+    {
+        var p = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(0) };
+        var box = new TextBox { Text = initVal.ToString("0.#"), Width = 60, Font = ForgeTheme.Body() };
+        ForgeTheme.StyleInput(box);
+        box.TextChanged += (_, _) => { if (double.TryParse(box.Text, out var r)) onChange(r); };
+        _charRatioBox = box;
+        var pct = new Label { Text = "%", AutoSize = true, ForeColor = ForgeTheme.TextMuted, Margin = new Padding(4, 6, 0, 0), Font = ForgeTheme.Small() };
+        p.Controls.Add(box);
+        p.Controls.Add(pct);
         return p;
     }
 
@@ -1030,6 +1058,18 @@ public sealed class RealtimeTab : TabPage
         hwp.HAction.Run("MoveParaBegin");
         hwp.HAction.Run("MoveSelParaEnd");
         Primitives.SetFontSize(hwp, BlankSize);
+        hwp.HAction.Run("Cancel");
+    }
+
+    /// <summary>E — 현재 문단 전체의 글자 장평(가로 비율)을 CharWidthRatio(%) 로 설정.
+    /// RunParagraphSize8 과 동일 패턴 (현재 문단 선택 → 적용 → Cancel).</summary>
+    public void RunCharWidthRatio()
+    {
+        if (_state.Hwp is null) return;
+        dynamic hwp = _state.Hwp.Hwp;
+        hwp.HAction.Run("MoveParaBegin");
+        hwp.HAction.Run("MoveSelParaEnd");
+        Primitives.SetCharWidthRatio(hwp, (int)Math.Round(CharWidthRatio));
         hwp.HAction.Run("Cancel");
     }
 

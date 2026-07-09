@@ -52,6 +52,7 @@ WinForms GUI 한 윈도우 안에 4 탭(⓪ How to / ① 실시간 / ② 양식 
 | Ctrl+Shift+S | 폰트·크기 2 적용 |
 | Ctrl+Shift+D | 선택영역 → TT HY울릉도M 15pt ((개요)/(요약) 강조용) |
 | Ctrl+Shift+F | 현재 문단 글자 크기 (빈줄 자간 꼬임 회피용 작은 크기) |
+| Ctrl+Shift+E | 현재 문단 전체 장평(글자 가로 비율)을 설정 값(기본 95%)으로 |
 | Ctrl+Shift+Z | 자간 0 초기화 |
 | Ctrl+Shift+X | **선택 영역 → 마크다운 변환** (한/글 selection 의 plain text 를 md 로 해석해 그 자리에 변환 출력) |
 

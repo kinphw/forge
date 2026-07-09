@@ -823,6 +823,26 @@ public static class Primitives
             ["SpacingOther"]    = valuePct,
         });
 
+    /// <summary>
+    /// 글자 장평 (가로 비율) 설정. tool2 `글자장평(장평)` (디컴파일 line 116) 등가 —
+    /// CharShape 의 Ratio{Hangul,Latin,Hanja,Japanese,Other,Symbol,User} 7개 일괄.
+    /// 값 범위 50~200 (%). PIT_UI1 이라 정수 전달.
+    /// </summary>
+    public static void SetCharWidthRatio(dynamic hwp, int ratioPct)
+    {
+        int r = ratioPct < 50 ? 50 : (ratioPct > 200 ? 200 : ratioPct);
+        ComHelpers.SetParam(hwp, "CharShape", new Dictionary<string, object>
+        {
+            ["RatioHangul"]   = r,
+            ["RatioLatin"]    = r,
+            ["RatioHanja"]    = r,
+            ["RatioJapanese"] = r,
+            ["RatioOther"]    = r,
+            ["RatioSymbol"]   = r,
+            ["RatioUser"]     = r,
+        });
+    }
+
     /// <summary>글자 음영색. color=0xFFFFFFFF 면 음영 제거.</summary>
     public static void SetTextShade(dynamic hwp, int color) =>
         ComHelpers.SetParam(hwp, "CharShape", new Dictionary<string, object> { ["ShadeColor"] = color });

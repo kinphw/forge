@@ -7,6 +7,8 @@
 //     - SetPosBySet(pset): ParameterSet 으로 위치 설정
 //   (HwpAutomation_2504.txt p.29 — "포인터를 사용할 수 없는 언어에서도 사용가능")
 
+using Forge.Interop.HwpObject;  // PIA — IHwpObject.InitScan/GetText (셀 블록 scan)
+
 namespace Forge.Core.Linter;
 
 public delegate void LogFn(string message);
@@ -178,6 +180,21 @@ public static class Range
         //   선택 영역이 있을 때만 .Value 에 도달해 터짐 (단일 캐럿은 null 분기로 회피).
         //   object 로 cast 해 정적 호출 → 반환 타입 (..)? 보존. (HwpxWriter 와 동일 패턴.)
         object hwpObj = hwp;
+
+        // ── 표 셀 블록 우선 처리 ──
+        // 셀 블록(단일/다중 셀 선택)은 GetSelectedPos 가 신뢰 불가(start==end 로 접히거나
+        // list 만 다르게 옴)라 SelectionRange 로는 단일 캐럿으로 오인 → 첫 문단만 처리되는
+        // 버그. tool2 `셀정보`(디컴파일 line 1137) 권위 패턴(CellShape + scan)으로 셀
+        // list 경계를 잡아 각 셀의 모든 문단을 순회한다.
+        var cellRange = TryGetCellBlockRange(hwpObj, log);
+        if (cellRange is not null)
+        {
+            var (lo, hi) = cellRange.Value;
+            hwp.Run("Cancel");
+            ApplyOverCells(hwp, fn, log, lo, hi);
+            return;
+        }
+
         var sel = SelectionRange(hwpObj);
         if (sel is null)
         {
@@ -264,57 +281,212 @@ public static class Range
 
     private static void ApplyAcrossLists(dynamic hwp, ParaActionFn fn, LogFn log, int startList, int endList)
     {
-        log($"  [range] 다중 list ({startList} ~ {endList}) — 각 list 모든 문단 순회");
+        // 드래그 방향에 따라 start.List > end.List 로 뒤집혀 올 수 있어 정규화 (셀 역드래그 등).
+        int loList = Math.Min(startList, endList);
+        int hiList = Math.Max(startList, endList);
+        log($"  [range] 다중 list ({loList} ~ {hiList}) — 각 list 모든 문단 순회");
         int total = 0;
         int visited = 0;
-
-        for (int listId = startList; listId <= endList; listId++)
+        for (int listId = loList; listId <= hiList; listId++)
         {
-            try
+            int p = ProcessOneList(hwp, fn, log, listId);
+            if (p > 0) visited++;
+            total += p;
+        }
+        log($"  [range] 다중 list 처리 완료: 방문 {visited}/{hiList - loList + 1} list, " +
+            $"총 {total} 문단");
+    }
+
+    /// <summary>
+    /// 표 셀 블록: [loList, hiList] 각 list(셀) 의 모든 문단을 순회 처리.
+    /// tool2 `블록리스트생성`(디컴파일 line 1179) 이 확인해 준 사실 — 표 셀 list-id 는
+    /// 행 우선(row-major) 연속 정수. 선택 사각형의 경계 셀 list 사이를 훑으면 선택 셀을
+    /// 모두 포함한다(사이에 낀 비선택 셀도 같은 표라 정렬해도 무해 — 멱등 연산).
+    /// </summary>
+    private static void ApplyOverCells(dynamic hwp, ParaActionFn fn, LogFn log, int loList, int hiList)
+    {
+        log($"  [cell] 셀 블록 순회: list {loList} ~ {hiList}");
+        int cells = 0, total = 0;
+        for (int listId = loList; listId <= hiList; listId++)
+        {
+            int p = ProcessOneList(hwp, fn, log, listId);
+            if (p > 0) { cells++; total += p; }
+        }
+        log($"  [cell] 완료: {cells} 셀, 총 {total} 문단");
+    }
+
+    /// <summary>
+    /// list(본문/셀) 하나의 모든 문단을 순회 처리. 처리한 문단 수 반환.
+    /// ApplyAcrossLists / ApplyOverCells 공용. fn 은 처리 후 caret 이 다음 문단 시작 부근.
+    /// </summary>
+    private static int ProcessOneList(dynamic hwp, ParaActionFn fn, LogFn log, int listId)
+    {
+        try
+        {
+            SetCaretPos(hwp, new CaretPos(listId, 0, 0));
+        }
+        catch (Exception e)
+        {
+            log($"  [list#{listId}] SetPos 실패 ({e.Message}) — skip");
+            return 0;
+        }
+        var cur = GetCaretPos(hwp);
+        if (cur.List != listId)
+        {
+            // 병합 등으로 존재하지 않는 list-id — 해당 셀 건너뜀.
+            log($"  [list#{listId}] 도달 실패 (got {cur}) — skip");
+            return 0;
+        }
+
+        int processed = 0;
+        int lastPara = -1;   // 같은 Para 재처리 방지
+        int iters = 0;
+        while (iters < 1000)
+        {
+            var prev = GetCaretPos(hwp);
+            if (prev.List != listId) break;          // list 이탈
+            if (prev.Para == lastPara) break;        // 마지막 문단 후 제자리
+            fn(hwp, log);
+            lastPara = prev.Para;
+            processed++;
+            var nw = GetCaretPos(hwp);
+            if (nw == prev) break;                   // 진행 멈춤
+            iters++;
+        }
+        log($"  [list#{listId}] 처리 문단 {processed}");
+        return processed;
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // 표 셀 블록 감지 (tool2 `셀정보` 권위 패턴)
+    // ────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// 현재 캐럿이 표 안이고 "셀 블록"(단일/다중 셀 선택)이 잡혀 있으면 그 셀들의
+    /// list-id 경계 (Lo, Hi) 를 반환. 표 밖 / bare caret / 셀 안 순수 텍스트 selection
+    /// 이면 null (→ 기존 경로 유지, 무변경).
+    ///
+    /// ★ 왜 GetSelectedPos 로 안 되나: 셀 블록은 GetSelectedPosBySet 가 start==end 로
+    ///   접히거나(단일 셀) list 만 다르게 오는 등 신뢰 불가. tool2 `셀정보`(디컴파일
+    ///   line 1137)도 셀 블록엔 GetSelectedPos 대신 CellShape + InitScan/MovePos(scanPos)
+    ///   기반을 씀 — 그 권위 패턴을 따른다.
+    ///
+    /// 감지 규칙:
+    ///   0. CellShape 접근 예외 → 표 밖 → null (모든 일반 본문 케이스 무변경).
+    ///   1. GetSelectedPos 가 같은 list 안 순수 텍스트 범위(start≠end, 같은 List) →
+    ///      기존 ApplyWithinList 가 옳게 처리 → null. (증상 1 보존)
+    ///   2. GetSelectedPos start.List ≠ end.List → 다중 셀 블록 → (min,max).
+    ///   3. 그 외(start==end / ok=false):
+    ///        SelectionMode(&0x0F)==0 → 선택 없음(bare caret) → null.
+    ///        아니면 InitScan/GetText 로 블록 확인 + MovePos(scanPos) 로 시작 셀 list 획득
+    ///        → 시작 셀 list 와 현재 캐럿 list 의 (min,max). (증상 2·3 해결)
+    /// </summary>
+    public static (int Lo, int Hi)? TryGetCellBlockRange(object hwpObj, LogFn? log = null)
+    {
+        log ??= NoopLog;
+        dynamic hwp = hwpObj;
+
+        // 0. 표 안인가 — CellShape 는 표 밖에서 접근 시 예외 (HwpAutomation p.12).
+        try { object _ = hwp.CellShape; }
+        catch { return null; }
+
+        // 현재 캐럿 list (scan 이 캐럿을 옮기므로 먼저 확보)
+        var caret0 = GetCaretPos(hwpObj);
+
+        // raw selection (start==end 여도 접지 않고 그대로)
+        var sel = SelectionRawInternal(hwpObj);
+
+        // 1. 한 셀 안 순수 텍스트 selection — 기존 within-list 경로 유지
+        if (sel.Ok && sel.Start != sel.End && sel.Start.List == sel.End.List)
+        {
+            log($"  [cell] 셀 안 텍스트 selection ({sel.Start}→{sel.End}) — within-list 경로");
+            return null;
+        }
+
+        // 2. 서로 다른 list — 다중 셀 블록
+        if (sel.Ok && sel.Start.List != sel.End.List)
+        {
+            int lo = Math.Min(sel.Start.List, sel.End.List);
+            int hi = Math.Max(sel.Start.List, sel.End.List);
+            log($"  [cell] 다중 셀 블록 (list {lo}~{hi}) — GetSelectedPos 기반");
+            return (lo, hi);
+        }
+
+        // 3. start==end / ok=false — 단일 셀 블록 or bare caret
+        int selMode = -1;
+        try { selMode = ((int)hwp.SelectionMode) & 0x0F; } catch { /* 미지원 → scan 으로 판정 */ }
+        if (selMode == 0)
+        {
+            log("  [cell] SelectionMode=0 (선택 없음) — bare caret, 기존 경로");
+            return null;
+        }
+
+        var scan = ScanBlockFirstList(hwpObj, log);
+        if (!scan.Active)
+        {
+            log("  [cell] scan 블록 미검출 — 기존 경로");
+            return null;
+        }
+        int clo = Math.Min(scan.List, caret0.List);
+        int chi = Math.Max(scan.List, caret0.List);
+        log($"  [cell] 셀 블록 (scan-start list={scan.List}, caret list={caret0.List}) → {clo}~{chi}");
+        return (clo, chi);
+    }
+
+    /// <summary>GetSelectedPosBySet 를 접지 않고 (Ok, Start, End) 그대로 반환.</summary>
+    private static (bool Ok, CaretPos Start, CaretPos End) SelectionRawInternal(object hwpObj)
+    {
+        dynamic hwp = hwpObj;
+        try
+        {
+            var sset = hwp.CreateSet("ListParaPos");
+            var eset = hwp.CreateSet("ListParaPos");
+            bool ok = (bool)hwp.GetSelectedPosBySet(sset, eset);
+            if (!ok) return (false, default, default);
+            var s = new CaretPos((int)sset.Item("List"), (int)sset.Item("Para"), (int)sset.Item("Pos"));
+            var e = new CaretPos((int)eset.Item("List"), (int)eset.Item("Para"), (int)eset.Item("Pos"));
+            return (true, s, e);
+        }
+        catch
+        {
+            return (false, default, default);
+        }
+    }
+
+    /// <summary>
+    /// 현재 블록을 InitScan(scanWithinSelection) + GetText 로 스캔하고, 텍스트가 있으면
+    /// MovePos(moveScanPos=201) 로 캐럿을 블록 시작으로 옮긴 뒤 그 list-id 반환.
+    /// tool2 `셀정보` 의 `InitScan(1,255); GetText(); MovePos(201)` 시퀀스와 동치.
+    ///
+    /// GetText 반환 2(일반 텍스트)/3(다음 문단) = 블록에 내용 있음(Active). 0/1/기타 =
+    /// 블록 없음 → Active=false. KeyIndicator(out 파라미터, C# dynamic 부적합)는 쓰지 않음.
+    /// </summary>
+    private static (int List, bool Active) ScanBlockFirstList(object hwpObj, LogFn log)
+    {
+        dynamic hwp = hwpObj;
+        try
+        {
+            if (hwpObj is IHwpObject typed)
             {
-                SetCaretPos(hwp, new CaretPos(listId, 0, 0));
-            }
-            catch (Exception e)
-            {
-                log($"  [list#{listId}] SetPos 실패 ({e.Message}) — skip");
-                continue;
-            }
-            var cur = GetCaretPos(hwp);
-            if (cur.List != listId)
-            {
-                log($"  [list#{listId}] 도달 실패 (got {cur}) — skip");
-                continue;
-            }
-            visited++;
-            log($"  [list#{listId}] 진입, 문단 순회 시작");
-            int innerIters = 0;
-            int lastProcessedPara = -1;   // 같은 Para 재처리 방지 (ApplyWithinList 와 동일)
-            while (innerIters < 1000)
-            {
-                var pPrev = GetCaretPos(hwp);
-                if (pPrev.Para == lastProcessedPara)
+                typed.InitScan(null, 0xff, null, null, null, null);   // range=scanWithinSelection
+                int state = typed.GetText(out string _);
+                bool active = state == 2 || state == 3;
+                if (active)
                 {
-                    log($"  [list#{listId}] para {pPrev.Para} 이미 처리 — 다음 list");
-                    break;
+                    try { hwp.MovePos(201, 0, 0); }   // moveScanPos → 블록 시작
+                    catch { active = false; }
                 }
-                fn(hwp, log);
-                lastProcessedPara = pPrev.Para;
-                var pNew = GetCaretPos(hwp);
-                if (pNew.List != listId)
-                {
-                    log($"  [list#{listId}] list 이탈 ({pNew}) — 다음 list");
-                    break;
-                }
-                if (pNew == pPrev)
-                {
-                    log($"  [list#{listId}] 진행 멈춤 — 다음 list");
-                    break;
-                }
-                innerIters++;
-                total++;
+                try { typed.ReleaseScan(); } catch { }
+                if (!active) return (-1, false);
+                var p = GetCaretPos(hwpObj);
+                return (p.List, true);
             }
         }
-        log($"  [range] 다중 list 처리 완료: 방문 {visited}/{endList - startList + 1} list, " +
-            $"총 {total} 문단");
+        catch (Exception ex)
+        {
+            log($"  [cell] scan 예외: {ex.Message}");
+            try { hwp.ReleaseScan(); } catch { }
+        }
+        return (-1, false);   // PIA cast 불가 환경 — 보수적으로 미검출
     }
 }

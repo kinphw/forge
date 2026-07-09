@@ -27,6 +27,7 @@ public static class Actions
         new("md_convert_sel",   "X", "선택→md 변환",         rt => rt.RunMdConvertSelection()),
         new("margin_capture",   "",  "여백 캡쳐",            rt => rt.RunMarginCapture()),
         new("margin_apply",     "",  "여백 적용",            rt => rt.RunMarginApply()),
+        new("char_width_ratio", "E", "현재 문단 장평",       rt => rt.RunCharWidthRatio()),
     };
 
     public static ActionDef ByHkId(int hkId) => All[hkId - 1];
