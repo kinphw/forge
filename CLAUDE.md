@@ -31,7 +31,7 @@
 
 ## 2. 사용 모드 (사용자 관점)
 
-WinForms GUI 한 윈도우 안에 4 탭(⓪ How to / ① 실시간 / ② 양식 / ③ 마크다운).
+WinForms GUI 한 윈도우 안에 5 탭(How to / 실시간 / 상용구 / 양식 / 마크다운).
 핵심 동선은 두 모드:
 
 | 모드 | UI 위치 | 동작 |
@@ -52,8 +52,9 @@ WinForms GUI 한 윈도우 안에 4 탭(⓪ How to / ① 실시간 / ② 양식 
 | Ctrl+Shift+S | 폰트·크기 2 적용 |
 | Ctrl+Shift+D | 선택영역 → TT HY울릉도M 15pt ((개요)/(요약) 강조용) |
 | Ctrl+Shift+F | 현재 문단 글자 크기 (빈줄 자간 꼬임 회피용 작은 크기) |
-| Ctrl+Shift+E | 현재 문단 전체 장평(글자 가로 비율)을 설정 값(기본 95%)으로 |
-| Ctrl+Shift+Z | 자간 0 초기화 |
+| Ctrl+Shift+E | 현재 문단 장평(글자 가로 비율)을 누를 때마다 5%씩 좁힘 (최소 50%, 설정 가능) |
+| Ctrl+Shift+Z | 자간 0 + 장평 100% 초기화 |
+| Ctrl+Shift+C | 상용구 확장 — 캐럿 앞 준말을 본말로 치환 (탭 ④ 상용구에서 관리) |
 | Ctrl+Shift+X | **선택 영역 → 마크다운 변환** (한/글 selection 의 plain text 를 md 로 해석해 그 자리에 변환 출력) |
 
 각 hotkey 의 letter 는 탭 ① UI 의 Entry 칸에서 사용자가 임의 변경 가능
@@ -121,6 +122,7 @@ src/
 │   ├── ComHelpers.cs              SetParam() — 5 단계 COM 패턴 1 줄 헬퍼
 │   ├── HwpSession.cs              ROT enum + DRM 호환 spawn + picker
 │   ├── UserSettings.cs            %APPDATA%\Forge\settings.json 영속화
+│   ├── Glossary.cs                상용구(준말→본말) 모델 + settings 영속화 + 기본 5종
 │   ├── Rgb.cs                     RGB 공용 타입 (System.Drawing 의존 회피)
 │   ├── ComLateBind.cs             Type.InvokeMember 래퍼
 │   ├── TypelibDispatch.cs         ITypeInfo dump + IDispatch.Invoke (sub-COM fallback)
@@ -142,10 +144,11 @@ src/
 │   │   ├── MarkdownDocument.cs
 │   │   └── HwpxWriter.cs          dispatcher + ConvertSelectionToHwpx
 │   ├── Linter/                    정형 룰 (실시간 + 배치 후처리)
-│   │   ├── Range.cs               SelectionRange / ApplyPerParagraph + GetPosBySet 우회
+│   │   ├── Range.cs               SelectionRange / ApplyPerParagraph + 셀 블록 순회
 │   │   ├── IndentAlign.cs         들여쓰기 정렬 (bullet/annotation 라인)
 │   │   ├── Kerning.cs             자간조정 (어절 잘림 방지)
-│   │   └── Squeeze.cs             어절 끌어올림 (한 줄 압축)
+│   │   ├── Squeeze.cs             어절 끌어올림 (한 줄 압축)
+│   │   └── GlossaryExpand.cs      캐럿 앞 준말→본말 치환 (Ctrl+Shift+C)
 │   ├── Templates/
 │   │   ├── ReportSpec.cs          양식 record (배치 모드 입력)
 │   │   ├── BulletStyle.cs · PageMargins.cs · TableStyle.cs
@@ -157,17 +160,18 @@ src/
 │   └── GlobalHotkeyManager.cs     백그라운드 STA 메시지 펌프 + BeginInvoke dispatch
 ├── Forge.UI/                      WinForms 진입점 (Microsoft.WindowsDesktop.App)
 │   ├── Program.cs                 STA Main
-│   ├── MainForm.cs                4 탭 + status bar + footer + About
+│   ├── MainForm.cs                5 탭 + status bar + footer + About
 │   ├── ForgeTheme.cs              디자인 토큰 (색·폰트·패딩)
 │   ├── ForgeIcon.cs               64×64 "F" 글리프 동적 합성
 │   ├── AppState.cs                HwpSession + ReportSpec + PreferredMoniker
 │   ├── HwpPickerForm.cs           다중 인스턴스 선택 다이얼로그
 │   └── Tabs/
-│       ├── HowToTab.cs            탭 ⓪ How to (md 문법 안내)
-│       ├── RealtimeTab.cs         탭 ① 실시간(개별 작업, 룰 + 단축키)
-│       ├── TemplatesTab.cs        탭 ② 양식(ForgeTemplates 카탈로그)
-│       ├── MarkdownTab.cs         탭 ③ 마크다운 입력(배치 변환)
-│       └── Actions.cs             9 ActionDef 카탈로그(단축키 ↔ 룰 매핑)
+│       ├── HowToTab.cs            탭 How to (md 문법 안내)
+│       ├── RealtimeTab.cs         탭 실시간(개별 작업, 룰 + 단축키)
+│       ├── GlossaryTab.cs         탭 상용구(준말→본말 치환 관리, C 단축키)
+│       ├── TemplatesTab.cs        탭 양식(ForgeTemplates 카탈로그)
+│       ├── MarkdownTab.cs         탭 마크다운 입력(배치 변환)
+│       └── Actions.cs             ActionDef 카탈로그(단축키 ↔ 룰 매핑)
 └── Forge.Probe/                   콘솔 진단·검증 도구
     └── Program.cs                 list / insert / convert / diag 서브커맨드
 

@@ -243,7 +243,11 @@ public static class Squeeze
     /// </summary>
     private const int MinSpacingPct = -30;
 
-    public static void FitCurrentParagraphToOneLine(dynamic hwp, int maxIters = 60, LogFn? log = null)
+    /// <param name="shouldAbort">매 iteration 앞에서 호출 — true 면 즉시 중단(사용자 ESC
+    /// 취소). UI 스레드 점유 루프라 호출부가 GetAsyncKeyState(ESC) 델리게이트를 주입한다.
+    /// 이미 적용된 자간 감소는 유지(부분 결과) — 완전 초기화는 Ctrl+Shift+Z.</param>
+    public static void FitCurrentParagraphToOneLine(
+        dynamic hwp, int maxIters = 60, LogFn? log = null, Func<bool>? shouldAbort = null)
     {
         log ??= _ => { };
         log("[fit_to_one_line] 시작");
@@ -316,6 +320,15 @@ public static class Squeeze
 
         for (int i = 0; i < maxIters; i++)
         {
+            // 사용자 ESC 취소 — UI 스레드 점유 루프라 호출부가 주입한 폴링으로 감지.
+            //   과압축(min 까지 좁힘) 등 비정상 진행을 언제든 즉시 멈춤.
+            if (shouldAbort?.Invoke() == true)
+            {
+                log($"[fit_to_one_line] ⊘ ESC 취소 — 중단, 현재 {cur} 줄 ({i} 회 적용 후). " +
+                    "완전 초기화는 Ctrl+Shift+Z.");
+                return;
+            }
+
             // (b) 가독성 floor — 이미 바닥이면 더 안 좁히고 종료
             if (spacing != SpacingUnknown && spacing <= MinSpacingPct)
             {

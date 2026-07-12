@@ -199,6 +199,8 @@ public static class MdlIcon
     public const string Tag         = "";   // 샘플/태그
     public const string AcceptCheck = "";   // ✓
     public const string Cancel      = "";   // ✗
+    public const string Add         = "";   // 추가 (+)
+    public const string Delete      = "";   // 삭제 (휴지통)
 }
 
 /// <summary>둥근 상태 indicator — 8×8 px 원, BackColor 만 바꾸면 됨.

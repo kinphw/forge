@@ -33,7 +33,7 @@
          새 버전 릴리스 시 <Version> 한 줄만 bump. FileVersion·AssemblyVersion
          은 자동 파생. UI 상단/우측 표시는 MainForm.ForgeVersion 이 assembly
          attribute 에서 reflection 으로 자동 읽음 → 별도 sync 불필요. -->
-    <Version>0.5.5</Version>
+    <Version>0.5.6</Version>
     <FileVersion>$(Version).0</FileVersion>
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <InformationalVersion>$(Version)</InformationalVersion>

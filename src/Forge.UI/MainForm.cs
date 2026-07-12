@@ -3,7 +3,7 @@
 //
 // 구조:
 //   상단 status bar (한/글 연결 상태 + 한/글 선택 + About)
-//   중앙 TabControl (4 탭: ⓪ How to / ① 실시간 / ② 양식 / ③ 마크다운)
+//   중앙 TabControl (5 탭: How to / 실시간 / 상용구 / 양식 / 마크다운)
 //   하단 footer (버전 라벨)
 
 using System.Reflection;
@@ -135,6 +135,7 @@ public partial class MainForm : Form
 
         _tabs.TabPages.Add(new HowToTab { Text = "How to?" });
         _tabs.TabPages.Add(_realtimeTab);
+        _tabs.TabPages.Add(new GlossaryTab { Text = "상용구" });
         _tabs.TabPages.Add(new TemplatesTab(State) { Text = "양식삽입" });
         _tabs.TabPages.Add(_markdownTab);
         _tabs.SelectedIndex = 1;  // 시작 탭 = 실시간

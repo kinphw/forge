@@ -32,6 +32,10 @@ var staThread = new Thread(() =>
             "convert" => ConvertMarkdown(args),
             "diag"    => DiagnoseDispatch(),
             "scan"    => DiagnoseSelectionScan(),
+            "glossary" => DiagnoseGlossaryState(),
+            "gloss"    => DiagnoseGlossaryState(),
+            "glossx"   => DiagnoseGlossaryExec(),
+            "glosstest" => RunGlossaryTest(),
             "mdconv"  => RunMdConvertSelection(),
             "parse"   => ParseMarkdownFile(args),
             "font"    => DiagnoseSetFont(args),
@@ -391,6 +395,156 @@ static int DiagnoseSelectionScan()
     }
 
     return 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 상용구(Ctrl+Shift+C) 진단 — 현재 캐럿/조합 상태를 비파괴로 덤프.
+//   ㅁ 조합 중(blink) 상태에서 캐럿이 ㅁ 앞/뒤 어디로 잡히는지, 범위선택인지 확인.
+//   먼저 이동 없는 read(caret/sel/selMode/현재 block) → 그다음 현재 문단 텍스트를
+//   읽어 caret.Pos 기준 앞/뒤 글자를 코드포인트까지 확인 (캐럿은 마지막에 복원).
+// ─────────────────────────────────────────────────────────────────────────
+static int DiagnoseGlossaryState()
+{
+    HwpSession session;
+    try { session = HwpSessionHelpers.AttachOrCreate(visible: true, allowSpawn: false); }
+    catch (NoExistingHwpException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 2; }
+    catch (MultipleHwpInstancesException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 3; }
+    Console.WriteLine($"[gloss] attach: {session.VersionName} #{session.InstanceIndex}");
+
+    dynamic hwp = session.Hwp;
+    object hwpObj = hwp;
+
+    // 1) 이동 없는 read (조합 상태 최대한 보존)
+    var caret = Forge.Core.Linter.Range.GetCaretPos(hwpObj);
+    Console.WriteLine($"[gloss] GetPosBySet caret = {caret}");
+
+    var sel = Forge.Core.Linter.Range.SelectionRange(hwpObj);
+    Console.WriteLine($"[gloss] SelectionRange = {(sel.HasValue ? $"{sel.Value.Start} → {sel.Value.End}" : "null (범위선택 아님)")}");
+
+    try { int sm = (int)hwp.SelectionMode; Console.WriteLine($"[gloss] SelectionMode = {sm} (&0x0F = {sm & 0x0F})"); }
+    catch (Exception e) { Console.WriteLine($"[gloss] SelectionMode 조회 실패: {e.Message}"); }
+
+    bool piaOk = (object)hwp is Forge.Interop.HwpObject.IHwpObject;
+    Console.WriteLine($"[gloss] PIA(IHwpObject) cast = {piaOk} (false 면 GetTextFile fallback 경로 사용)");
+
+    // 2) 현재 문단 텍스트 + caret.Pos 로 앞/뒤 글자 판정 (캐럿 저장 후 복원)
+    //    PIA 불가 환경이라 Primitives.GetSelectionText (fallback 포함) 로 읽는다.
+    Console.WriteLine("[gloss] --- 현재 문단 스캔 (MoveParaBegin→MoveSelParaEnd) ---");
+    hwp.Run("MoveParaBegin");
+    hwp.Run("MoveSelParaEnd");
+    string paraText = Forge.Core.Renderers.Primitives.GetSelectionText(hwpObj, out _);
+    hwp.Run("Cancel");
+    // 캐럿 복원
+    try { Forge.Core.Linter.Range.SetCaretPos(hwpObj, caret); } catch { }
+
+    Console.WriteLine($"[gloss] 문단 텍스트 = '{Vis(paraText)}' (len={paraText.Length})");
+    Console.WriteLine($"[gloss] 문단 codepoints: {Cps(paraText)}");
+    int pos = caret.Pos;
+    Console.WriteLine($"[gloss] caret.Pos = {pos}  (문단 내 0-based 글자 위치)");
+    string before = pos - 1 >= 0 && pos - 1 < paraText.Length ? paraText[pos - 1].ToString() : "(없음)";
+    string after  = pos >= 0 && pos < paraText.Length ? paraText[pos].ToString() : "(없음)";
+    Console.WriteLine($"[gloss] 캐럿 바로 앞 글자(Pos-1) = '{Vis(before)}' {Cps(before)}");
+    Console.WriteLine($"[gloss] 캐럿 바로 뒤 글자(Pos)   = '{Vis(after)}' {Cps(after)}");
+    Console.WriteLine("[gloss] → 상용구 준말(예 ㅁ)이 '앞'에 있으면 MoveSelPrevChar, '뒤'에 있으면 MoveSelNextChar 대상.");
+
+    return 0;
+}
+
+// 조합 중(IME) 상태에서 "SetCaretPos 재배치 없이 바로 MoveSelPrevChar" 가
+// 방금 친 글자를 선택하는지 실측 + 실제 치환까지 검증. (한 번의 ㅁ 재입력으로 확인)
+static int DiagnoseGlossaryExec()
+{
+    HwpSession session;
+    try { session = HwpSessionHelpers.AttachOrCreate(visible: true, allowSpawn: false); }
+    catch (NoExistingHwpException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 2; }
+    catch (MultipleHwpInstancesException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 3; }
+    Console.WriteLine($"[glossx] attach: {session.VersionName} #{session.InstanceIndex}");
+
+    dynamic hwp = session.Hwp;
+    object hwpObj = hwp;
+
+    var caret0 = Forge.Core.Linter.Range.GetCaretPos(hwpObj);
+    Console.WriteLine($"[glossx] 조합 상태 GetPos = {caret0}");
+
+    // 재배치 없이 바로 뒤로 1글자 선택 (첫 액션이 조합 확정 → 방금 친 글자 선택 가정)
+    hwp.Run("MoveSelPrevChar");
+    string sel1 = Forge.Core.Renderers.Primitives.GetSelectionText(hwpObj, out _);
+    var caretAfterSel = Forge.Core.Linter.Range.GetCaretPos(hwpObj);
+    Console.WriteLine($"[glossx] MoveSelPrevChar 후 선택='{Vis(sel1)}' {Cps(sel1)}  caret={caretAfterSel}");
+
+    var entries = Forge.Core.Glossary.Load();
+    bool converted = false;
+    foreach (var e in entries)
+    {
+        if (sel1 == e.Before)
+        {
+            hwp.Run("Delete");
+            ComHelpers.InsertText(hwp, e.After);
+            Console.WriteLine($"[glossx] ✔ 치환 '{e.Before}' → '{e.After}'");
+            converted = true;
+            break;
+        }
+    }
+    if (!converted)
+    {
+        hwp.Run("Cancel");
+        Console.WriteLine($"[glossx] 매치 없음 (선택='{Vis(sel1)}') — 선택 해제만 함");
+    }
+    return 0;
+}
+
+// 확정 입력(조합 아님) 기준으로 GlossaryExpand 의 COM 메커니즘 검증.
+// 문서 끝에 각 준말을 입력→확장하고 결과 문단을 읽어 본말로 바뀌는지 확인.
+// (IME 조합 경로는 COM 으로 재현 불가 — 그건 실제 키보드 입력으로만 테스트 가능)
+static int RunGlossaryTest()
+{
+    HwpSession session;
+    try { session = HwpSessionHelpers.AttachOrCreate(visible: true, allowSpawn: false); }
+    catch (NoExistingHwpException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 2; }
+    catch (MultipleHwpInstancesException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 3; }
+    Console.WriteLine($"[glosstest] attach: {session.VersionName} #{session.InstanceIndex}");
+
+    dynamic hwp = session.Hwp;
+    object hwpObj = hwp;
+    var entries = Forge.Core.Glossary.Load();
+    Console.WriteLine($"[glosstest] entries: {string.Join(", ", entries.Select(e => $"'{e.Before}'→'{e.After}'"))}");
+
+    hwp.Run("MoveDocEnd");
+    hwp.Run("BreakPara");
+    ComHelpers.InsertText(hwp, "[Forge 상용구 자동테스트]");
+    hwp.Run("BreakPara");
+
+    Forge.Core.Linter.LogFn lg = m => Console.WriteLine($"      {m}");
+    int pass = 0, fail = 0;
+    foreach (var e in entries)
+    {
+        ComHelpers.InsertText(hwp, e.Before);   // 확정 입력 — 캐럿은 글자 뒤
+        bool ret = Forge.Core.Linter.GlossaryExpand.ExpandAtCaret(hwp, entries, lg);
+
+        hwp.Run("MoveParaBegin");
+        hwp.Run("MoveSelParaEnd");
+        string para = Forge.Core.Renderers.Primitives.GetSelectionText(hwpObj, out _);
+        hwp.Run("Cancel");
+        hwp.Run("MoveParaEnd");
+
+        bool ok = para == e.After;
+        if (ok) pass++; else fail++;
+        Console.WriteLine($"[glosstest] {(ok ? "✔" : "✘")} '{e.Before}' → 문단='{Vis(para)}' {Cps(para)} (기대 '{e.After}', ret={ret})");
+        hwp.Run("BreakPara");
+    }
+    Console.WriteLine($"[glosstest] 결과: {pass} pass / {fail} fail (총 {entries.Count})");
+    Console.WriteLine("[glosstest] 한/글 문서 끝에 테스트 라인 확인 — Ctrl+Z 로 되돌리기 가능.");
+    return fail == 0 ? 0 : 1;
+}
+
+static string Vis(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t");
+
+static string Cps(string s)
+{
+    if (string.IsNullOrEmpty(s)) return "[]";
+    var parts = new List<string>();
+    foreach (var r in s.EnumerateRunes()) parts.Add($"U+{r.Value:X4}");
+    return "[" + string.Join(" ", parts) + "]";
 }
 
 // ─────────────────────────────────────────────────────────────────────────

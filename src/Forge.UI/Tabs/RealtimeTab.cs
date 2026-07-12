@@ -43,8 +43,12 @@ public sealed class RealtimeTab : TabPage
     public double Font4Size { get; private set; } = 15.0;
     public double BlankSize { get; private set; } = 8.0;
 
-    /// <summary>E 현재 문단 장평 (글자 가로 비율 %, 50~200). 기본 95.</summary>
-    public double CharWidthRatio { get; private set; } = 95.0;
+    /// <summary>E 현재 문단 장평 감소 시 최소 장평 (floor, %). 기본 50 (HWP 하한).
+    /// 누를 때마다 현재 문단 장평을 5%씩 줄이되 이 값 밑으로는 안 내려감.</summary>
+    public double CharRatioFloor { get; private set; } = 50.0;
+
+    /// <summary>E 장평 감소 스텝 (% 고정).</summary>
+    private const int CharRatioStep = 5;
 
     /// <summary>Q 자동정렬 pre-pass — 마커 문단 연속 시 사이에 빈줄(BlankSize) 자동 삽입.</summary>
     public bool BlankBetweenMarkers { get; private set; } = false;
@@ -104,7 +108,7 @@ public sealed class RealtimeTab : TabPage
         Font3Size = GetDouble(rt, "size3", Font3Size);
         Font4Size = GetDouble(rt, "size4", Font4Size);
         BlankSize = GetDouble(rt, "blank_size", BlankSize);
-        CharWidthRatio = GetDouble(rt, "char_width_ratio", CharWidthRatio);
+        CharRatioFloor = GetDouble(rt, "char_ratio_floor", CharRatioFloor);
         BlankBetweenMarkers = GetBool(rt, "q_blank_between_markers", BlankBetweenMarkers);
     }
 
@@ -350,6 +354,7 @@ public sealed class RealtimeTab : TabPage
         ["margin_capture"]  = 10,
         ["margin_apply"]    = 11,
         ["char_width_ratio"] = 12,
+        ["glossary_expand"]  = 13,
     };
 
     /// <summary>
@@ -499,7 +504,7 @@ public sealed class RealtimeTab : TabPage
         Font3Name = "HY헤드라인M"; Font3Size = 15.0;
         Font4Name = "HY울릉도M";   Font4Size = 15.0;
         BlankSize = 8.0;
-        CharWidthRatio = 95.0;
+        CharRatioFloor = 50.0;
         BlankBetweenMarkers = false;
 
         // pending debounce 폐기 — reset 직전의 미반영 변경이 살아남는 사고 방지
@@ -520,7 +525,7 @@ public sealed class RealtimeTab : TabPage
             if (_fontSizes[i]  is not null) _fontSizes[i].Text  = fontSizes[i].ToString("0.#");
         }
         if (_blankSizeBox is not null) _blankSizeBox.Text = BlankSize.ToString("0.#");
-        if (_charRatioBox is not null) _charRatioBox.Text = CharWidthRatio.ToString("0.#");
+        if (_charRatioBox is not null) _charRatioBox.Text = CharRatioFloor.ToString("0.#");
         if (_qBlankBetween is not null) _qBlankBetween.Checked = BlankBetweenMarkers;
 
         // 단축키 letter + status 라벨 + Win32 재등록
@@ -555,10 +560,10 @@ public sealed class RealtimeTab : TabPage
         {
             Text = "현재 캐럿 또는 선택영역에 적용",
             AutoSize = false,
-            // 15 button 행 (~36px each, AutoSize RowStyle 보장) + separator × 3 (~14px) +
+            // 16 button 행 (~36px each, AutoSize RowStyle 보장) + separator × 3 (~14px) +
             // GroupBox header/padding (~30) — 부족 시 행 잘림 사고.
             // (AutoSize=true 는 grid Dock=Fill 과 circular sizing → 시도 금지.)
-            Height = 690,
+            Height = 730,
             MinimumSize = new Size(640, 0),
             Margin = new Padding(0, 0, 0, ForgeTheme.Pad),
         };
@@ -605,11 +610,12 @@ public sealed class RealtimeTab : TabPage
             null, hkIndex: 6,
             tooltip: "빈줄 용 글자크기 설정 (자간 꼬임 회피)");
 
-        // 행 6: 현재 문단 장평 (E) — para_size(D) 의 쌍둥이 (현재 문단 + 값 입력)
-        AddRow(grid, 6, "현재 문단 → 장평",
-            BuildCharRatioCluster(CharWidthRatio, r => { CharWidthRatio = r; QueuePersist("char_width_ratio", r); }),
+        // 행 6: 현재 문단 장평 5%씩 감소 (E) — 우측 값은 최소 장평(floor)
+        AddRow(grid, 6, "현재 문단 장평 −5%",
+            BuildCharRatioCluster(CharRatioFloor, r => { CharRatioFloor = r; QueuePersist("char_ratio_floor", r); }),
             null, hkIndex: 11,
-            tooltip: "현재 문단 전체 글자 장평(가로 비율)을 우측 값(%)으로 설정. 50~200 범위.");
+            tooltip: "누를 때마다 현재 문단 전체 글자 장평(가로 비율)을 5%씩 좁힘.\n" +
+                     "우측 값(%)이 최소 장평 — 그 아래로는 내려가지 않음 (기본 50%, HWP 하한).");
 
         // 행 7: 헤드라인 폰트 (F)
         AddRow(grid, 7, "폰트·크기 (헤드라인)",
@@ -626,24 +632,29 @@ public sealed class RealtimeTab : TabPage
         // 행 9: separator
         AddSeparator(grid, 9);
 
-        // 행 10: 자간 0 (Z)
-        AddRow(grid, 10, "자간 0 초기화", null, null, hkIndex: 7,
-            tooltip: "선택영역 자간 0% 으로 reset");
+        // 행 10: 자간·장평 0 초기화 (Z)
+        AddRow(grid, 10, "자간·장평 초기화", null, null, hkIndex: 7,
+            tooltip: "선택영역(없으면 현재 문단) 자간 0% + 장평 100% 로 reset");
 
         // 행 11: 선택→md (X)
         AddRow(grid, 11, "선택영역 → 마크다운 변환", null, null, hkIndex: 8,
             tooltip: "선택 영역의 plain 텍스트를 md 로 해석해 그 자리 변환");
 
-        // 행 12: separator
-        AddSeparator(grid, 12);
+        // 행 12: 상용구 확장 (C) — 항목 관리는 탭 ④ 상용구
+        AddRow(grid, 12, "상용구 확장 (준말→본말)", null, null, hkIndex: 12,
+            tooltip: "캐럿 바로 앞 준말을 등록된 본말로 치환 (예: ㅈ→§).\n" +
+                     "준말·본말 목록은 상단 '상용구' 탭에서 추가·편집.");
 
-        // 행 13: 여백 캡쳐 (기본 단축키 빈칸)
-        AddRow(grid, 13, "여백 캡쳐 (현재 문서 → 클립보드)", null, null, hkIndex: 9,
+        // 행 13: separator
+        AddSeparator(grid, 13);
+
+        // 행 14: 여백 캡쳐 (기본 단축키 빈칸)
+        AddRow(grid, 14, "여백 캡쳐 (현재 문서 → 클립보드)", null, null, hkIndex: 9,
             tooltip: "현재 한/글 문서의 6변 여백 (Left/Right/Top/Bottom/Header/Footer) 을\n" +
                      "세션 클립보드에 저장 (앱 종료 시 휘발).");
 
-        // 행 14: 여백 적용 (기본 단축키 빈칸)
-        AddRow(grid, 14, "여백 적용 (클립보드 → 현재 문서)", null, null, hkIndex: 10,
+        // 행 15: 여백 적용 (기본 단축키 빈칸)
+        AddRow(grid, 15, "여백 적용 (클립보드 → 현재 문서)", null, null, hkIndex: 10,
             tooltip: "클립보드에 저장된 여백을 현재 한/글 문서 전체에 적용.");
 
         box.Controls.Add(grid);
@@ -983,15 +994,19 @@ public sealed class RealtimeTab : TabPage
             }
         }
 
+        // ESC 언제든 취소 — 문단 순회 루프가 매 반복 폴링(GetAsyncKeyState). hwp 가
+        //   dynamic 이라 메서드 그룹 직접 전달은 CS1976 → Func 변수로 변환 후 전달.
+        Func<bool> escAbort = Forge.Win32.KeyState.IsEscPressed;
+
         Log("━━━━━━ 자동 정렬 (들·자·들) 시작 ━━━━━━");
         if (rangeStart.HasValue && rangeEnd.HasValue)
         {
             Forge.Core.Linter.Range.ApplyPerParagraphInRange(
-                _state.Hwp.Hwp, combined, rangeStart.Value, rangeEnd.Value, lg);
+                _state.Hwp.Hwp, combined, rangeStart.Value, rangeEnd.Value, lg, escAbort);
         }
         else
         {
-            Forge.Core.Linter.Range.ApplyPerParagraph(_state.Hwp.Hwp, combined, lg);
+            Forge.Core.Linter.Range.ApplyPerParagraph(_state.Hwp.Hwp, combined, lg, escAbort);
         }
 
         if (origin is not null)
@@ -1014,7 +1029,11 @@ public sealed class RealtimeTab : TabPage
         Forge.Core.Linter.CaretPos? origin =
             sel is null ? Forge.Core.Linter.Range.GetCaretPos(hwp) : null;
 
-        Forge.Core.Linter.Squeeze.FitCurrentParagraphToOneLine(hwp, log: lg);
+        // ESC 언제든 취소 — UI 스레드 점유 루프라 GetAsyncKeyState 폴링 델리게이트 주입.
+        //   hwp 가 dynamic 이라 호출이 런타임 디스패치 → 메서드 그룹 직접 전달 불가(CS1976),
+        //   Func<bool> 변수로 변환 후 전달.
+        Func<bool> escAbort = Forge.Win32.KeyState.IsEscPressed;
+        Forge.Core.Linter.Squeeze.FitCurrentParagraphToOneLine(hwp, log: lg, shouldAbort: escAbort);
 
         if (origin is not null)
         {
@@ -1033,13 +1052,14 @@ public sealed class RealtimeTab : TabPage
         var sel = Forge.Core.Linter.Range.SelectionRange(hwpObj);
         if (sel is null)
         {
-            // 캐럿만 있는 상태 — 현재 문단 전체를 선택해 자간 0 적용.
-            // 자간만 바꾸고 문단 구조는 불변이므로, 적용 전 캐럿 위치를 저장했다
+            // 캐럿만 있는 상태 — 현재 문단 전체를 선택해 자간 0 + 장평 100 적용.
+            // 자간·장평만 바꾸고 문단 구조는 불변이므로, 적용 전 캐럿 위치를 저장했다
             // 적용 후 그대로 복원한다 (RunAutoAlign 의 Restore 와 동일 패턴).
             var origin = Forge.Core.Linter.Range.GetCaretPos(hwp);
             hwp.HAction.Run("MoveParaBegin");
             hwp.HAction.Run("MoveSelParaEnd");
             Primitives.ResetKerningZero(hwp);
+            Primitives.SetCharWidthRatio(hwp, 100);   // 장평도 기본(100%) 초기화
             hwp.HAction.Run("Cancel");
             try { Forge.Core.Linter.Range.SetCaretPos(hwp, origin); }
             catch { hwp.HAction.Run("MoveParaBegin"); }
@@ -1048,6 +1068,7 @@ public sealed class RealtimeTab : TabPage
         {
             // 선택영역이 있으면 그 범위에만 적용.
             Primitives.ResetKerningZero(hwp);
+            Primitives.SetCharWidthRatio(hwp, 100);   // 장평도 기본(100%) 초기화
         }
     }
 
@@ -1061,16 +1082,27 @@ public sealed class RealtimeTab : TabPage
         hwp.HAction.Run("Cancel");
     }
 
-    /// <summary>E — 현재 문단 전체의 글자 장평(가로 비율)을 CharWidthRatio(%) 로 설정.
-    /// RunParagraphSize8 과 동일 패턴 (현재 문단 선택 → 적용 → Cancel).</summary>
+    /// <summary>E — 누를 때마다 현재 문단 전체 글자 장평을 5%씩 좁힘. 최소 CharRatioFloor(%).
+    /// 현재 장평은 문단 시작 캐럿(선택 없음)에서 읽어 -5, floor clamp 후 문단 전체 적용.</summary>
     public void RunCharWidthRatio()
     {
         if (_state.Hwp is null) return;
         dynamic hwp = _state.Hwp.Hwp;
+
+        // 현재 장평 읽기 — selection 없는 캐럿 위치라야 단일값 (CharShape get 규칙).
+        hwp.HAction.Run("MoveParaBegin");
+        int cur = Primitives.GetCharWidthRatio(hwp);
+
+        int floor = (int)Math.Round(CharRatioFloor);
+        int next = cur - CharRatioStep;
+        if (next < floor) next = floor;
+
+        // 현재 문단 전체 선택 → 적용 → 해제 (RunParagraphSize8 과 동일 패턴)
         hwp.HAction.Run("MoveParaBegin");
         hwp.HAction.Run("MoveSelParaEnd");
-        Primitives.SetCharWidthRatio(hwp, (int)Math.Round(CharWidthRatio));
+        Primitives.SetCharWidthRatio(hwp, next);
         hwp.HAction.Run("Cancel");
+        Log($"  [장평] {cur}% → {next}% (최소 {floor}%)");
     }
 
     public void ApplyFont(string fontName, double size)
@@ -1092,6 +1124,24 @@ public sealed class RealtimeTab : TabPage
         {
             MessageBox.Show(FindForm(), ex.Message, "선택 영역 변환", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
+    }
+
+    /// <summary>C — 캐럿 바로 앞 준말을 등록된 상용구 본말로 치환. 항목은 탭 ④ 상용구에서 관리.</summary>
+    public void RunGlossaryExpand()
+    {
+        if (_state.Hwp is null) return;
+
+        // ★ IME 조합(한글 자모 등) 확정 먼저 — 안 하면 조합 버퍼의 글자가 편집 후
+        //   커서 이동 시 되살아나 원복됨. 오른쪽 방향키 1회 주입으로 확정 → 캐럿이
+        //   확정 글자 뒤로 오므로 아래 "앞 글자 읽기" 방향이 맞음. 포커스/창 조작 없음.
+        //   크로스 프로세스라 한/글이 주입 키를 처리할 짧은 여유를 준다.
+        Forge.Win32.ImeHelper.CommitComposition();
+        System.Threading.Thread.Sleep(30);
+
+        dynamic hwp = _state.Hwp.Hwp;
+        var entries = Forge.Core.Glossary.Load();
+        Forge.Core.Linter.LogFn lg = msg => Log(msg);
+        Forge.Core.Linter.GlossaryExpand.ExpandAtCaret(hwp, entries, lg);
     }
 
     // ─ 여백 클립보드 (세션 한정, 영속화 없음) ─────────────────────────

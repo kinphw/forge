@@ -843,6 +843,26 @@ public static class Primitives
         });
     }
 
+    /// <summary>
+    /// 현재 캐럿(selection 없으면 캐럿 위치) 의 글자 장평(RatioHangul, %) 읽기. 실패 시 100.
+    /// CharShape 프로퍼티 get — HwpAutomation p.12: "selection 없으면 캐럿 위치 글자 모양".
+    /// (selection 내 장평이 혼합이면 아이템 자체가 없으므로, 호출 전 selection 을 풀고
+    ///  캐럿만 둔 상태에서 읽어야 단일값 보장.)
+    /// </summary>
+    public static int GetCharWidthRatio(dynamic hwp)
+    {
+        try
+        {
+            var cs = hwp.CharShape;
+            int r = (int)cs.Item("RatioHangul");
+            return (r < 50 || r > 200) ? 100 : r;
+        }
+        catch
+        {
+            return 100;
+        }
+    }
+
     /// <summary>글자 음영색. color=0xFFFFFFFF 면 음영 제거.</summary>
     public static void SetTextShade(dynamic hwp, int color) =>
         ComHelpers.SetParam(hwp, "CharShape", new Dictionary<string, object> { ["ShadeColor"] = color });

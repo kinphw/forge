@@ -26,6 +26,10 @@ public static class Range
 {
     private static readonly LogFn NoopLog = _ => { };
 
+    /// <summary>사용자 ESC 취소 판정 — 호출부가 GetAsyncKeyState(ESC) 델리게이트 주입.
+    /// UI 스레드 점유 문단 순회 루프가 매 반복 검사해 즉시 중단(Q 자동정렬 등).</summary>
+    private static bool Aborted(Func<bool>? shouldAbort) => shouldAbort?.Invoke() == true;
+
     /// <summary>
     /// 현재 selection 의 (start, end) 페어 반환. selection 없거나 start==end 면 null.
     /// 한컴 공식 (HwpAutomation_2504.txt p.34) 권고대로 GetSelectedPosBySet 사용 —
@@ -170,7 +174,8 @@ public static class Range
     /// fn 의 contract: 한 문단 처리 후 caret 이 다음 문단 시작 부근으로 이동
     /// (IndentAlign.ProcessParagraph / Kerning.AdjustParagraph 모두 충족).
     /// </summary>
-    public static void ApplyPerParagraph(dynamic hwp, ParaActionFn fn, LogFn? log = null)
+    public static void ApplyPerParagraph(
+        dynamic hwp, ParaActionFn fn, LogFn? log = null, Func<bool>? shouldAbort = null)
     {
         log ??= NoopLog;
 
@@ -191,13 +196,14 @@ public static class Range
         {
             var (lo, hi) = cellRange.Value;
             hwp.Run("Cancel");
-            ApplyOverCells(hwp, fn, log, lo, hi);
+            ApplyOverCells(hwp, fn, log, lo, hi, shouldAbort);
             return;
         }
 
         var sel = SelectionRange(hwpObj);
         if (sel is null)
         {
+            if (Aborted(shouldAbort)) { log("  [range] ⊘ ESC 취소"); return; }
             log("  [range] 단일 캐럿 — 현재 문단만");
             fn(hwp, log);
             return;
@@ -212,9 +218,9 @@ public static class Range
         hwp.Run("Cancel");
 
         if (start.List == end.List)
-            ApplyWithinList(hwp, fn, log, start, end);
+            ApplyWithinList(hwp, fn, log, start, end, shouldAbort);
         else
-            ApplyAcrossLists(hwp, fn, log, start.List, end.List);
+            ApplyAcrossLists(hwp, fn, log, start.List, end.List, shouldAbort);
     }
 
     /// <summary>
@@ -222,18 +228,21 @@ public static class Range
     /// 변형(빈줄 삽입 등) 한 뒤 호출용. 단일/다중 list 분기는 ApplyPerParagraph 와 동일.
     /// </summary>
     public static void ApplyPerParagraphInRange(
-        dynamic hwp, ParaActionFn fn, CaretPos start, CaretPos end, LogFn? log = null)
+        dynamic hwp, ParaActionFn fn, CaretPos start, CaretPos end, LogFn? log = null,
+        Func<bool>? shouldAbort = null)
     {
         log ??= NoopLog;
         log($"  [range] explicit: {start} → {end}");
         hwp.Run("Cancel");
         if (start.List == end.List)
-            ApplyWithinList(hwp, fn, log, start, end);
+            ApplyWithinList(hwp, fn, log, start, end, shouldAbort);
         else
-            ApplyAcrossLists(hwp, fn, log, start.List, end.List);
+            ApplyAcrossLists(hwp, fn, log, start.List, end.List, shouldAbort);
     }
 
-    private static void ApplyWithinList(dynamic hwp, ParaActionFn fn, LogFn log, CaretPos start, CaretPos end)
+    private static void ApplyWithinList(
+        dynamic hwp, ParaActionFn fn, LogFn log, CaretPos start, CaretPos end,
+        Func<bool>? shouldAbort = null)
     {
         SetCaretPos(hwp, start);
         const int maxIter = 1000;
@@ -243,6 +252,7 @@ public static class Range
 
         while (iters < maxIter)
         {
+            if (Aborted(shouldAbort)) { log("  [range] ⊘ ESC 취소 — 순회 중단"); break; }
             var prev = GetCaretPos(hwp);
             if (prev.List != end.List)
             {
@@ -279,7 +289,9 @@ public static class Range
         log($"  [range] 처리된 문단: {processed} 개 (단일 list)");
     }
 
-    private static void ApplyAcrossLists(dynamic hwp, ParaActionFn fn, LogFn log, int startList, int endList)
+    private static void ApplyAcrossLists(
+        dynamic hwp, ParaActionFn fn, LogFn log, int startList, int endList,
+        Func<bool>? shouldAbort = null)
     {
         // 드래그 방향에 따라 start.List > end.List 로 뒤집혀 올 수 있어 정규화 (셀 역드래그 등).
         int loList = Math.Min(startList, endList);
@@ -289,7 +301,8 @@ public static class Range
         int visited = 0;
         for (int listId = loList; listId <= hiList; listId++)
         {
-            int p = ProcessOneList(hwp, fn, log, listId);
+            if (Aborted(shouldAbort)) { log("  [range] ⊘ ESC 취소 — list 순회 중단"); break; }
+            int p = ProcessOneList(hwp, fn, log, listId, shouldAbort);
             if (p > 0) visited++;
             total += p;
         }
@@ -303,13 +316,16 @@ public static class Range
     /// 행 우선(row-major) 연속 정수. 선택 사각형의 경계 셀 list 사이를 훑으면 선택 셀을
     /// 모두 포함한다(사이에 낀 비선택 셀도 같은 표라 정렬해도 무해 — 멱등 연산).
     /// </summary>
-    private static void ApplyOverCells(dynamic hwp, ParaActionFn fn, LogFn log, int loList, int hiList)
+    private static void ApplyOverCells(
+        dynamic hwp, ParaActionFn fn, LogFn log, int loList, int hiList,
+        Func<bool>? shouldAbort = null)
     {
         log($"  [cell] 셀 블록 순회: list {loList} ~ {hiList}");
         int cells = 0, total = 0;
         for (int listId = loList; listId <= hiList; listId++)
         {
-            int p = ProcessOneList(hwp, fn, log, listId);
+            if (Aborted(shouldAbort)) { log("  [cell] ⊘ ESC 취소 — 셀 순회 중단"); break; }
+            int p = ProcessOneList(hwp, fn, log, listId, shouldAbort);
             if (p > 0) { cells++; total += p; }
         }
         log($"  [cell] 완료: {cells} 셀, 총 {total} 문단");
@@ -319,7 +335,8 @@ public static class Range
     /// list(본문/셀) 하나의 모든 문단을 순회 처리. 처리한 문단 수 반환.
     /// ApplyAcrossLists / ApplyOverCells 공용. fn 은 처리 후 caret 이 다음 문단 시작 부근.
     /// </summary>
-    private static int ProcessOneList(dynamic hwp, ParaActionFn fn, LogFn log, int listId)
+    private static int ProcessOneList(
+        dynamic hwp, ParaActionFn fn, LogFn log, int listId, Func<bool>? shouldAbort = null)
     {
         try
         {
@@ -343,6 +360,7 @@ public static class Range
         int iters = 0;
         while (iters < 1000)
         {
+            if (Aborted(shouldAbort)) { log($"  [list#{listId}] ⊘ ESC 취소 — 중단"); break; }
             var prev = GetCaretPos(hwp);
             if (prev.List != listId) break;          // list 이탈
             if (prev.Para == lastPara) break;        // 마지막 문단 후 제자리
