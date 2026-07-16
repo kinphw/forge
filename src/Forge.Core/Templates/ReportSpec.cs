@@ -102,8 +102,10 @@ public sealed record ReportSpec
     public double NoteBoxHeightMm    { get; init; } = 10.0;
     public double NoteBodySizePt     { get; init; } = 20.0;
 
-    // ─ 붙임 — NoteCallout 의 이전(개선 전) 형식 ─
-    public Rgb    AttachHeaderBgRgb  { get; init; } = new(0, 0, 255);
+    // ─ 붙임 — 정예병 예시(ref/1.hwp) 붙임1 박스 실측 재현 ─
+    //   라벨 배경 #333399(51,51,153) — Forge.Probe tabledump 로 SelCellsBorderFill.FillAttr
+    //   .WinBrushFaceColor 실측 (기존 순수 파랑 0,0,255 에서 교체). 폰트 HY헤드라인M 15pt.
+    public Rgb    AttachHeaderBgRgb  { get; init; } = new(51, 51, 153);   // #333399
     public double AttachHeaderSizePt { get; init; } = 15.0;
     public double AttachHeaderWidthMm{ get; init; } = 22.0;
     public double AttachBodySizePt   { get; init; } = 13.0;

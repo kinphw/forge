@@ -32,6 +32,7 @@ var staThread = new Thread(() =>
             "convert" => ConvertMarkdown(args),
             "diag"    => DiagnoseDispatch(),
             "scan"    => DiagnoseSelectionScan(),
+            "tabledump" => DiagnoseTableDump(),
             "glossary" => DiagnoseGlossaryState(),
             "gloss"    => DiagnoseGlossaryState(),
             "glossx"   => DiagnoseGlossaryExec(),
@@ -535,6 +536,155 @@ static int RunGlossaryTest()
     Console.WriteLine($"[glosstest] 결과: {pass} pass / {fail} fail (총 {entries.Count})");
     Console.WriteLine("[glosstest] 한/글 문서 끝에 테스트 라인 확인 — Ctrl+Z 로 되돌리기 가능.");
     return fail == 0 ? 0 : 1;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 표 셀 덤프 — 활성 문서의 모든 list(본문+셀)를 순회하며 셀 텍스트·폰트·배경색·
+// 셀 폭/높이·4변 테두리를 읽어 콘솔에 출력. 실제 참조 hwp 의 박스 서식 추출용.
+//   색: HWP RGBColor = COLORREF 0x00BBGGRR (r=low byte). mm = unit * 25.4 / 7200.
+// ─────────────────────────────────────────────────────────────────────────
+static int DiagnoseTableDump()
+{
+    HwpSession session;
+    try { session = HwpSessionHelpers.AttachOrCreate(visible: true, allowSpawn: false); }
+    catch (NoExistingHwpException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 2; }
+    catch (MultipleHwpInstancesException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 3; }
+    Console.WriteLine($"[tabledump] attach: {session.VersionName} #{session.InstanceIndex}");
+
+    dynamic hwp = session.Hwp;
+    object hwpObj = hwp;
+    var origin = Forge.Core.Linter.Range.GetCaretPos(hwpObj);
+
+    for (int listId = 0; listId <= 40; listId++)
+    {
+        try { Forge.Core.Linter.Range.SetCaretPos(hwpObj, new Forge.Core.Linter.CaretPos(listId, 0, 0)); }
+        catch { continue; }
+        var cur = Forge.Core.Linter.Range.GetCaretPos(hwpObj);
+        if (cur.List != listId) continue;   // 도달 못한 list-id
+
+        // 셀 텍스트
+        string text;
+        try
+        {
+            hwp.Run("MoveParaBegin");
+            hwp.Run("MoveSelParaEnd");
+            text = Forge.Core.Renderers.Primitives.GetSelectionText(hwpObj, out _);
+            hwp.Run("Cancel");
+        }
+        catch { text = "(read fail)"; }
+        string vis = Vis(text).Trim();
+
+        // 셀 여부 판정 (CellShape — 표 밖이면 예외)
+        bool inCell;
+        try { var cs0 = hwp.CellShape; inCell = cs0 != null; }
+        catch { inCell = false; }
+
+        // 본문(list 0) 이면서 비어있으면 스킵 (셀만 관심)
+        if (listId == 0 && !inCell) continue;
+
+        Console.WriteLine($"[tabledump] === list #{listId} {(inCell ? "(셀)" : "(본문/기타)")} text='{vis}' ===");
+
+        // 폰트 (CharShape readback — 캐럿 문단 선택)
+        try
+        {
+            hwp.Run("MoveParaBegin");
+            hwp.Run("MoveSelParaEnd");
+            var rb = hwp.HParameterSet.HCharShape;
+            hwp.HAction.GetDefault("CharShape", rb.HSet);
+            object face   = ((object)rb).GetType().InvokeMember("FaceNameHangul", BindingFlags.GetProperty, null, rb, null) ?? "";
+            object height = ((object)rb).GetType().InvokeMember("Height",         BindingFlags.GetProperty, null, rb, null) ?? 0;
+            object bold   = ((object)rb).GetType().InvokeMember("Bold",           BindingFlags.GetProperty, null, rb, null) ?? 0;
+            object tcol   = ((object)rb).GetType().InvokeMember("TextColor",      BindingFlags.GetProperty, null, rb, null) ?? 0;
+            double pt = Convert.ToDouble(height) / 100.0;
+            Console.WriteLine($"             font face='{face}' size={pt}pt bold={bold} textColor={DecColor(tcol)}");
+            hwp.Run("Cancel");
+        }
+        catch (Exception e) { Console.WriteLine($"             font read fail: {e.Message}"); }
+
+        if (!inCell) continue;
+
+        // ★ 셀 배경/테두리/폭은 캐럿만으론 GetDefault 가 반영 안 함 — 셀 블록 선택 후 읽는다.
+        //   반복 간 selection 잔재 제거 위해 Cancel + 캐럿 재설정 후 TableCellBlock.
+        try
+        {
+            hwp.Run("Cancel");
+            Forge.Core.Linter.Range.SetCaretPos(hwpObj, new Forge.Core.Linter.CaretPos(listId, 0, 0));
+            hwp.Run("TableCellBlock");
+        }
+        catch { }
+        try { Console.WriteLine($"             SelectionMode(셀블록됨?)={(int)hwp.SelectionMode}"); } catch { }
+
+        // 셀 폭/높이 (셀 블록 상태 CellShape)
+        try
+        {
+            var cs = hwp.CellShape;
+            object? w = null, h = null;
+            try { w = cs.Item("Width"); } catch { }
+            try { h = cs.Item("Height"); } catch { }
+            double wmm = w != null ? Convert.ToDouble(w) * 25.4 / 7200.0 : -1;
+            double hmm = h != null ? Convert.ToDouble(h) * 25.4 / 7200.0 : -1;
+            Console.WriteLine($"             cell W={wmm:F2}mm H={hmm:F2}mm (rawW={w} rawH={h})");
+        }
+        catch (Exception e) { Console.WriteLine($"             cellshape read fail: {e.Message}"); }
+
+        // 셀 배경 + 4변 테두리 — MCP 권위 경로:
+        //   CellBorderFill → SelCellsBorderFill(선택 셀 BorderFill) → FillAttr(DrawFillAttr).WinBrushFaceColor
+        try
+        {
+            var act = hwp.CreateAction("CellBorderFill");
+            var pset = act.CreateSet();
+            act.GetDefault(pset);
+            dynamic sel = pset.Item("SelCellsBorderFill");   // 선택 셀의 BorderFill
+
+            // fill — 3개 sub-BorderFill(Sel/All/Table) 의 FillAttr 을 모두 읽어 색이 있는 곳 확인
+            foreach (var loc in new[] { "SelCellsBorderFill", "AllCellsBorderFill", "TableBorderFill" })
+            {
+                try
+                {
+                    dynamic bfset = pset.Item(loc);
+                    dynamic fill = bfset.Item("FillAttr");
+                    object? type = null, face = null;
+                    try { type = fill.Item("Type"); } catch { }
+                    try { face = fill.Item("WinBrushFaceColor"); } catch { }
+                    int t = 0; try { t = Convert.ToInt32(type); } catch { }
+                    if (t != 0 || face != null)
+                        Console.WriteLine($"             bg[{loc}] Type={type} WinBrushFaceColor={DecColor(face)}");
+                }
+                catch { }
+            }
+
+            // borders (선택 셀)
+            foreach (var sd in new[] { "Top", "Bottom", "Left", "Right" })
+            {
+                string colorKey = sd == "Left" ? "BorderCorlorLeft" : $"BorderColor{sd}";  // sic
+                object? bt = null, bw = null, bc = null;
+                try { bt = sel.Item($"BorderType{sd}"); } catch { }
+                try { bw = sel.Item($"BorderWidth{sd}"); } catch { }
+                try { bc = sel.Item(colorKey); } catch { }
+                Console.WriteLine($"             border {sd,-6} type={bt} width={bw} color={DecColor(bc)}");
+            }
+        }
+        catch (Exception e) { Console.WriteLine($"             cellborderfill read fail: {e.Message}"); }
+
+        try { hwp.Run("Cancel"); } catch { }
+    }
+
+    try { Forge.Core.Linter.Range.SetCaretPos(hwpObj, origin); } catch { }
+    Console.WriteLine("[tabledump] 완료 — 위 셀 텍스트로 박스를 식별해 서식 매핑.");
+    return 0;
+}
+
+// HWP COLORREF(0x00BBGGRR) → RGB 디코드. r=low byte.
+static string DecColor(object? c)
+{
+    if (c == null) return "null";
+    try
+    {
+        int v = Convert.ToInt32(c);
+        int r = v & 0xFF, g = (v >> 8) & 0xFF, b = (v >> 16) & 0xFF;
+        return $"RGB({r},{g},{b})[0x{v & 0xFFFFFF:X6}]";
+    }
+    catch { return c.ToString() ?? "?"; }
 }
 
 static string Vis(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t");

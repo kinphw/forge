@@ -30,6 +30,7 @@ Thumbs.db
 !.vscode/tasks.json
 !.vscode/extensions.json
 !.vscode/zip-publish.ps1
+!.vscode/bump-version.ps1
 *.swp
 
 # ─────────────────────────────────────────────────────────────────────
@@ -115,6 +116,11 @@ release/
 # tool1·tool2 분석 자료, 한컴 공식 PDF, pycdc 클론 등 모두 개발자 로컬에만.
 # 분석 결과 중 본 프로젝트 운영에 필요한 사양은 spec/ 또는 코드 주석으로 흡수.
 reference/
+
+# ref/ — 서식 추출용 실제 보고서 예시 (.hwp) 등 개발자 로컬 참조.
+# 본 repo 는 공개라 내부 문서 원본은 커밋하지 않는다. 추출한 사양(색·폰트·치수)만
+# ForgeTemplates/ReportSpec 코드와 TASK_LOG 에 기록해 재현 가능하게 유지.
+ref/
 
 # ─────────────────────────────────────────────────────────────────────
 # tool2-spec-mcp seed (extract_to_sql.py 로 재생성 — 큰 SQL 파일)

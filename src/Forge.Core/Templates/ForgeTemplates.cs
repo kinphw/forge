@@ -269,6 +269,58 @@ public static class ForgeTemplates
     }
 
     // ────────────────────────────────────────────────────────────────────
+    // 8b~8c. 붙임/참고 (정예병 예시 ref/1.hwp 실측 재현)
+    //   공통 구조: 3셀 [라벨 17.6mm / gap 1mm / 본문] — 라벨 단색 배경 + 흰 Bold,
+    //   본문 4변 solid 얇은 테두리. 색·폰트·행높이(9.63mm)는 Forge.Probe tabledump 실측:
+    //     붙임1 라벨 = #333399(51,51,153) 파랑, HY헤드라인M 15pt
+    //     참고1 라벨 = #699B37(105,155,55) 초록 (글자크기는 사용자 요청으로 15pt 통일)
+    // ────────────────────────────────────────────────────────────────────
+
+    /// <summary>붙임 (파란 라벨) — 정예병 예시 붙임1 재현. 라벨 #333399 + HY헤드라인M 15pt.</summary>
+    public static void 붙임_파랑(dynamic hwp) => 라벨박스_예시(hwp,
+        label: "붙임1", labelBg: new Rgb(51, 51, 153), fontSizePt: 15.0);
+
+    /// <summary>참고 (초록 라벨) — 정예병 예시 참고1 재현. 라벨 #699B37 + HY헤드라인M 15pt.</summary>
+    public static void 참고_초록(dynamic hwp) => 라벨박스_예시(hwp,
+        label: "참고1", labelBg: new Rgb(105, 155, 55), fontSizePt: 15.0);
+
+    /// <summary>정예병 예시 라벨박스 공통 빌더 (붙임_파랑/참고_초록 SSOT).</summary>
+    private static void 라벨박스_예시(dynamic hwp, string label, Rgb labelBg, double fontSizePt)
+    {
+        double wBody = 182.0 - (double)MeasurePageMarginMm(hwp);
+        MakeTable(hwp, new double[] { 17.6, 1.0, wBody }, new double[] { 9.63 });
+        SetCellMarginZero(hwp);
+
+        // 라벨 셀 — 단색 배경 + 흰 Bold 가운데
+        SetTableBg(hwp, labelBg);
+        hwp.HAction.Run("CharShapeBold");
+        SetFont(hwp, "HY헤드라인M", fontSizePt);
+        SetTextColor(hwp, 255, 255, 255);
+        AlignPara(hwp, Align.Center);
+        InsertText(hwp, label);
+
+        // gap 셀 — 라벨과 본문 사이 여백 (좌우선만)
+        MoveTableRight(hwp, 1);
+        SetTableBorderType(hwp, BorderType.None, BorderType.None, BorderType.Solid, BorderType.Solid);
+        hwp.HAction.Run("TableResizeExLeft");
+        hwp.HAction.Run("TableResizeExLeft");
+
+        // 본문 셀 — 4변 얇은 solid 테두리 + 검정 본문
+        MoveTableRight(hwp, 1);
+        SetTableBorderType(hwp, BorderType.Solid, BorderType.Solid, BorderType.Solid, BorderType.Solid);
+        SetTableBorderThickness(hwp, 1, 1, 1, 1);
+        SetTableBorderColor(hwp, 0, 0, 0);
+        CharNormal(hwp);
+        SetTextColor(hwp, 0, 0, 0);
+        SetFont(hwp, "HY헤드라인M", fontSizePt);
+        AlignPara(hwp, Align.Justify);
+        hwp.HAction.Run("InsertFixedWidthSpace");
+        hwp.HAction.Run("InsertFixedWidthSpace");
+        InsertText(hwp, "◆◆◆◆◆ 관련 내용");
+        ExitTableAndJustify(hwp);
+    }
+
+    // ────────────────────────────────────────────────────────────────────
     // 13. 헤더 약식 — 상하 진남 라인 (top/bottom 0.7mm #3E57A5), 좌우 없음
     //     reference/보고서양식_base_추가4종.hwpx borderFillIDRef="10".
     //     본문 HY헤드라인M 18pt 가운데정렬.
@@ -643,6 +695,10 @@ public static class ForgeTemplates
         // ── 붙임박스 ──
         new(13, "붙임박스", h => 금감원페이지참고((dynamic)h),
             "참고 (진파헤더)", "진파 라벨 + HY헤드라인M 15pt 본문"),
+        new(21, "붙임박스", h => 붙임_파랑((dynamic)h),
+            "붙임 (파란 라벨)", "붙임1 파란 라벨 (#333399) + HY헤드라인M 15pt 본문 (정예병 예시)"),
+        new(22, "붙임박스", h => 참고_초록((dynamic)h),
+            "참고 (초록 라벨)", "참고1 초록 라벨 (#699B37) + HY헤드라인M 15pt 본문 (정예병 예시)"),
         // ── 기호 ──
         new(14, "기호", h => 당구장((dynamic)h),
             "당구장 ※", "주석 마커 ※ 1 글자"),
