@@ -332,6 +332,37 @@ public static class Range
     }
 
     /// <summary>
+    /// 지정한 list-id 들(표 셀)만 순회하며 각 셀의 모든 문단에 fn 적용. 처리 문단 수 반환.
+    ///
+    /// ★ 용도: 배치 STAGE 2 가 본문(list 0)만 순회해 결론박스(=>) 안 문단이 Q(들·자·들)를
+    ///   못 받던 문제. 단, "모든 셀" 을 돌면 가운데정렬이 정책인 GFM 표(TableRenderer)까지
+    ///   건드리게 되므로, 렌더러가 만든 박스 셀의 list-id 만 넘겨받아 그것만 처리한다.
+    ///   (내용/정렬 추측 없이 생성 시점에 기록된 식별자 사용 — HwpxWriter.boxCellLists.)
+    ///
+    /// 순회 후 캐럿은 호출 시점 위치로 복원.
+    /// </summary>
+    public static int ApplyOverLists(
+        dynamic hwp, ParaActionFn fn, IEnumerable<int> listIds,
+        LogFn? log = null, Func<bool>? shouldAbort = null)
+    {
+        log ??= NoopLog;
+        object hwpObj = hwp;
+        CaretPos origin = GetCaretPos(hwpObj);
+
+        int cells = 0, total = 0;
+        foreach (int listId in listIds.Distinct().Where(id => id >= 0).OrderBy(id => id))
+        {
+            if (Aborted(shouldAbort)) { log("  [box] ⊘ 취소 — 박스 셀 순회 중단"); break; }
+            int p = ProcessOneList(hwp, fn, log, listId, shouldAbort);
+            if (p > 0) { cells++; total += p; }
+        }
+
+        try { SetCaretPos(hwpObj, origin); } catch { }
+        log($"  [box] 박스 셀 {cells}개 / 문단 {total}개 처리");
+        return total;
+    }
+
+    /// <summary>
     /// list(본문/셀) 하나의 모든 문단을 순회 처리. 처리한 문단 수 반환.
     /// ApplyAcrossLists / ApplyOverCells 공용. fn 은 처리 후 caret 이 다음 문단 시작 부근.
     /// </summary>

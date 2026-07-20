@@ -87,11 +87,17 @@ public sealed record ReportSpec
     };
 
     // ─ 결론 화살표 박스 (=>) ─
+    //   기본 시각 = 양식삽입 #10 "화살표박스 (회색)" (reference borderFillIDRef="8").
+    //   2026-07-16 사용자 요청으로 기존 민트 점선박스에서 교체 — ➡ 마커 + 연회색 배경 +
+    //   얇은 검정 실선. 민트 점선이 필요하면 spec 에서 Bg/Dotted/Marker 를 되돌리면 됨.
     public string ConclusionFont          { get; init; } = "휴먼명조";
     public double ConclusionSizePt        { get; init; } = 15.0;
-    public Rgb    ConclusionBgRgb         { get; init; } = new(205, 242, 228);  // 민트
-    public double ConclusionBoxHeightMm   { get; init; } = 18.0;
-    public bool   ConclusionBorderDotted  { get; init; } = true;
+    public string ConclusionMarker        { get; init; } = "➡";                 // 이전: ⇨
+    public Rgb    ConclusionBgRgb         { get; init; } = new(242, 242, 242);  // #F2F2F2 연회색
+    public double ConclusionBoxHeightMm   { get; init; } = 17.0;
+    public bool   ConclusionBorderDotted  { get; init; } = false;               // 실선
+    public int    ConclusionBorderWidth   { get; init; } = 1;                   // 1 ≈ 0.12mm
+    public Rgb    ConclusionBorderRgb     { get; init; } = new(0, 0, 0);
 
     // ─ 참고 callout ─
     public string NoteHeaderFont     { get; init; } = "HY헤드라인M";

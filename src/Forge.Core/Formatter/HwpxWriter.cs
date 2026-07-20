@@ -102,6 +102,8 @@ public static class HwpxWriter
         log($"[STAGE 1] 본문 {doc.Nodes.Count} 노드 dispatcher 시작");
         // forceBodyEnd: New 모드만 true — 매 노드 후 MoveDocEnd 로 nesting 누적 회피.
         // Cursor 모드 (X 단축키, 문서 중간 변환) 는 false — 캐럿이 변환 위치에 머물러야 함.
+        // STAGE 1 이 만든 박스 셀(결론박스 등) 의 list-id 수집 → STAGE 2 가 이 셀만 정렬.
+        var boxCellLists = new List<int>();
         DispatchNodes(hwp, doc.Nodes, spec, log,
             initialPrevEmitted: metadataEmitted,
             // ★ New 모드 (append-only) 의 정공법 — 매 노드 후 MoveDocEnd + BreakPara.
@@ -115,7 +117,8 @@ public static class HwpxWriter
             //   - X 모드 (Cursor) 가 동작했던 건 페이지 여백/줄간격 inherit 으로 표
             //     시각 layout 이 우연히 MoveLineDown 이 잡히는 좌표에 떨어진 운빨.
             forceBodyEnd: mode == HwpxWriteMode.New,
-            isCancelled: isCancelled);
+            isCancelled: isCancelled,
+            boxCellLists: boxCellLists);
         if (isCancelled())
         {
             log("[STAGE 1] ⚠ 사용자 강제 중지 — STAGE 2 / 저장 skip");
@@ -136,12 +139,12 @@ public static class HwpxWriter
             // ★ Q 단축키(RunAutoAlign) 와 동일 패턴 — doc-wide 1 pass + 각 문단 안에서
             //   (들·자·들) 즉시 처리. 이전: 전체 들 → 전체 자 → 전체 들 의 3 doc-wide pass.
             //   결과는 같지만 traversal 횟수 1/3 로 단축 + 각 문단이 한 번에 완성.
-            //   박스 셀(SubsectionRenderer/SectionRenderer/ConclusionRenderer 등) 은
-            //   렌더러가 이미 배치한 상태라 본문(list 0) 만 처리 — 객체 영역 skip.
+            //   ★ 본문(list 0) 순회 후 표 셀 list 도 순회 — 예전엔 본문만 훑어 GFM 표
+            //     셀 안 문단이 Q 를 통째로 못 받았음 (사용자 보고, 2026-07-16).
             if (applyIndentAlign && applyKerning)
             {
-                log("[STAGE 2] 본문 문단별 (들·자·들) 통합 — 1 pass");
-                try { StageTwoCombined(hwp, linterLog); }
+                log($"[STAGE 2] 본문 + 박스 셀({boxCellLists.Count}) 문단별 (들·자·들) 통합");
+                try { StageTwoCombined(hwp, linterLog, isCancelled, boxCellLists); }
                 catch (Exception e) { log($"  ⚠ STAGE 2 통합 중단: {e.Message}"); }
             }
             else if (applyIndentAlign)
@@ -196,7 +199,8 @@ public static class HwpxWriter
         LogFn log,
         bool initialPrevEmitted,
         bool forceBodyEnd = false,
-        Func<bool>? isCancelled = null)
+        Func<bool>? isCancelled = null,
+        List<int>? boxCellLists = null)
     {
         void EmitBlankPara()
         {
@@ -242,7 +246,7 @@ public static class HwpxWriter
 
             try
             {
-                DispatchOne(hwp, node, spec);
+                DispatchOne(hwp, node, spec, boxCellLists);
                 ForceBodyEnd();
                 lastWasEmit = true;
             }
@@ -256,7 +260,8 @@ public static class HwpxWriter
         }
     }
 
-    private static void DispatchOne(dynamic hwp, Node node, ReportSpec spec)
+    private static void DispatchOne(
+        dynamic hwp, Node node, ReportSpec spec, List<int>? boxCellLists = null)
     {
         switch (node.Type)
         {
@@ -292,8 +297,12 @@ public static class HwpxWriter
                 return;
             }
             case NodeType.Conclusion:
-                new ConclusionRenderer(hwp, spec).Render(node.Text);
+            {
+                // 결론박스(=>)는 셀 안 본문이 wrap 되므로 STAGE 2 정렬 대상. 셀 list-id 기록.
+                int cell = new ConclusionRenderer(hwp, spec).Render(node.Text);
+                if (cell >= 0) boxCellLists?.Add(cell);
                 return;
+            }
             case NodeType.Callout:
             {
                 // ★ child 의 .Text 만 뽑으면 파서가 분리한 Marker (○ * 등) 와 Summary
@@ -330,10 +339,13 @@ public static class HwpxWriter
     /// STAGE 2 통합 — doc-wide 1 pass + 각 문단 안에서 (들·자·들) 즉시 처리.
     /// Q 단축키 (RunAutoAlign) 의 combined 함수와 동일 로직.
     ///
-    /// 본문(list 0) 만 순회. 박스 셀은 렌더러가 이미 배치한 상태라 skip.
-    /// 각 stage 사이 startPos 복원 — 자간조정의 wrap 위치 계산이 인덴트와 일치하게.
+    /// 순회 범위: 본문(list 0) → 그다음 모든 표 셀 list (ApplyOverCellLists).
+    /// 표 셀까지 도는 이유 — 본문만 훑으면 GFM 표(TableRenderer) 셀 안 문단이 정렬을
+    /// 못 받는다. 박스 템플릿의 단일 라인 라벨 셀은 linter 의 한 줄 skip 으로 무변경.
     /// </summary>
-    private static void StageTwoCombined(dynamic hwp, Linter.LogFn log)
+    private static void StageTwoCombined(
+        dynamic hwp, Linter.LogFn log, Func<bool>? shouldAbort = null,
+        IReadOnlyList<int>? boxCellLists = null)
     {
         log("  [stage2] 본문 순회 시작");
         hwp.HAction.Run("MoveDocEnd");
@@ -346,27 +358,12 @@ public static class HwpxWriter
 
         while (iters < maxIter)
         {
+            if (shouldAbort?.Invoke() == true) { log("  [stage2] ⊘ 취소 — 본문 순회 중단"); break; }
+
             var prev = Linter.Range.GetCaretPos(hwp);
             if (prev == endPos) break;
 
-            // 문단 시작 pos 저장 — 각 stage 후 복원용.
-            hwp.HAction.Run("MoveParaBegin");
-            var startPos = Linter.Range.GetCaretPos(hwp);
-
-            void Restore()
-            {
-                try { Linter.Range.SetCaretPos(hwp, startPos); }
-                catch { hwp.HAction.Run("MoveParaBegin"); }
-            }
-
-            // 1) 1차 들여쓰기 — line wrap 기준 확정 (없으면 자간 효과 죽음)
-            Linter.IndentAlign.ProcessParagraph(hwp, log);
-            // 2) 자간조정 — 확정된 wrap 위에서 어절 잘림 보정
-            Restore();
-            Linter.Kerning.AdjustParagraph(hwp, log);
-            // 3) 2차 들여쓰기 — 자간 drift 보정 (마지막 stage 가 캐럿을 다음 문단으로 이동)
-            Restore();
-            Linter.IndentAlign.ProcessParagraph(hwp, log);
+            CombinedParaAction(hwp, log);
 
             var cur = Linter.Range.GetCaretPos(hwp);
             if (cur == prev)
@@ -378,6 +375,49 @@ public static class HwpxWriter
             iters++;
         }
         log($"  [stage2] 본문 처리 완료 ({processed} 문단)");
+
+        // ★ 박스 셀 — 위 본문 순회는 list 0 만 훑으므로 결론박스(=>) 안 문단이 누락된다.
+        //   단 "모든 셀" 을 돌면 가운데정렬이 정책인 GFM 표까지 건드리므로,
+        //   STAGE 1 이 기록해 둔 박스 셀 list-id 만 처리한다 (boxCellLists).
+        if (boxCellLists is { Count: > 0 } && shouldAbort?.Invoke() != true)
+        {
+            log($"  [stage2] 박스 셀 순회 시작 ({boxCellLists.Count}개)");
+            Linter.ParaActionFn cellAction = CombinedParaAction;
+            try { Linter.Range.ApplyOverLists(hwp, cellAction, boxCellLists, log, shouldAbort); }
+            catch (Exception e) { log($"  ⚠ 박스 셀 순회 중단: {e.Message}"); }
+        }
+    }
+
+    /// <summary>
+    /// 한 문단에 (들·자·들) 3 단계 적용 — Q 단축키(RunAutoAlign) 의 combined 와 동일 로직.
+    /// 본문 순회와 표 셀 순회가 공유하는 SSOT.
+    ///
+    /// 각 stage 사이 startPos 복원 — 자간조정의 wrap 위치 계산이 인덴트와 일치하게.
+    /// ParaActionFn contract 충족: 마지막 ProcessParagraph 가 caret 을 다음 문단으로 이동.
+    /// </summary>
+    private static void CombinedParaAction(object hwpObj, Linter.LogFn? logArg)
+    {
+        dynamic h = hwpObj;
+        Linter.LogFn log = logArg ?? (_ => { });
+
+        // 문단 시작 pos 저장 — 각 stage 후 복원용.
+        h.HAction.Run("MoveParaBegin");
+        var startPos = Linter.Range.GetCaretPos(h);
+
+        void Restore()
+        {
+            try { Linter.Range.SetCaretPos(h, startPos); }
+            catch { h.HAction.Run("MoveParaBegin"); }
+        }
+
+        // 1) 1차 들여쓰기 — line wrap 기준 확정 (없으면 자간 효과 죽음)
+        Linter.IndentAlign.ProcessParagraph(h, log);
+        // 2) 자간조정 — 확정된 wrap 위에서 어절 잘림 보정
+        Restore();
+        Linter.Kerning.AdjustParagraph(h, log);
+        // 3) 2차 들여쓰기 — 자간 drift 보정 (마지막 stage 가 캐럿을 다음 문단으로 이동)
+        Restore();
+        Linter.IndentAlign.ProcessParagraph(h, log);
     }
 
     /// <summary>
