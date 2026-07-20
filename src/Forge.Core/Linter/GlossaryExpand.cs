@@ -1,10 +1,10 @@
 // 상용구 확장 — 캐럿 바로 앞 준말(before)을 본말(after)로 치환.
-// Ctrl+Shift+C (glossary_expand) 진입점.
+// Ctrl+Shift+I (glossary_expand) 진입점.
 //
 // 동작 (두 모드):
 //   A. 선택 영역이 있으면 — 캐럿 앞이 아니라 "선택된 글자" 를 읽어 매치.
 //      선택 텍스트가 등록 준말과 정확히 일치하면 Delete → InsertText(after) 치환.
-//   B. 선택이 없으면(캐럿만) — 캐럿 앞 글자(MoveSelPrevChar)로만 매치. Ctrl+Shift+C 는
+//   B. 선택이 없으면(캐럿만) — 캐럿 앞 글자(MoveSelPrevChar)로만 매치. Ctrl+Shift+I 는
 //      먼저 오른쪽 방향키를 주입해 IME 조합을 확정 + 캐럿을 방금 친 글자 '뒤'로 보내므로
 //      (RealtimeTab), 앞 글자만 읽으면 된다. 등록 상용구 before 길이 내림차순(긴 준말
 //      우선 ">>" > ">"). 매치 없으면 캐럿 원위치 복원.

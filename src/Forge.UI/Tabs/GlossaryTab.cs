@@ -1,6 +1,6 @@
 // 탭 ④ 상용구 — 준말(변경전) → 본말(변경후) 치환 규칙 관리.
 //
-// Ctrl+Shift+C (glossary_expand) 가 여기 등록된 목록을 참조해, 한/글에서 캐럿
+// Ctrl+Shift+I (glossary_expand) 가 여기 등록된 목록을 참조해, 한/글에서 캐럿
 // 바로 앞 준말을 본말로 치환한다. 편집은 즉시 %APPDATA%\Forge\settings.json 에
 // 자동 저장 (Glossary.Save). 기본 5종 제공 + 사용자 자유 추가.
 
@@ -80,11 +80,11 @@ public sealed class GlossaryTab : TabPage
         toolbar.Dock = DockStyle.Top;
 
         var desc = ForgeTheme.SectionDesc(
-            "한/글에서 준말을 입력하고 바로 뒤에서 Ctrl+Shift+C 를 누르면 본말로 치환됩니다.\n" +
-            "예: 'ㅈ' 입력 후 Ctrl+Shift+C → '§'. 편집은 즉시 자동 저장됩니다.");
+            "한/글에서 준말을 입력하고 바로 뒤에서 Ctrl+Shift+I 를 누르면 본말로 치환됩니다.\n" +
+            "예: 'ㅈ' 입력 후 Ctrl+Shift+I → '§'. 편집은 즉시 자동 저장됩니다.");
         desc.Dock = DockStyle.Top;
 
-        var title = ForgeTheme.SectionTitle("상용구 — 준말 → 본말 치환 (Ctrl+Shift+C)");
+        var title = ForgeTheme.SectionTitle("상용구 — 준말 → 본말 치환 (Ctrl+Shift+I)");
         title.Dock = DockStyle.Top;
 
         Controls.Add(_grid);

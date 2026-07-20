@@ -5,7 +5,7 @@
 // 미설정(첫 실행)이면 Defaults 5종 반환.
 //
 // 사용처:
-//   - Ctrl+Shift+C (glossary_expand) → GlossaryExpand.ExpandAtCaret
+//   - Ctrl+Shift+I (glossary_expand) → GlossaryExpand.ExpandAtCaret
 //   - 탭 ④ 상용구 (GlossaryTab) 편집 UI
 
 using System.Text.Json;
@@ -30,7 +30,7 @@ public static class Glossary
     private const string Section = "glossary";
     private const string Key = "entries";
 
-    // 메모리 캐시 — 매 Ctrl+Shift+C 입력마다 settings.json 디스크 읽기+JSON 파싱을
+    // 메모리 캐시 — 매 Ctrl+Shift+I 입력마다 settings.json 디스크 읽기+JSON 파싱을
     // 피한다(핫패스). glossary 섹션의 유일한 writer 가 이 클래스(Save/ResetToDefaults)
     // 라 Save 시 캐시를 갱신하면 항상 최신. 접근은 전부 UI 스레드라 lock 불필요.
     private static List<GlossaryEntry>? _cache;

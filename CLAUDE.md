@@ -54,7 +54,7 @@ WinForms GUI 한 윈도우 안에 5 탭(How to / 실시간 / 상용구 / 양식 
 | Ctrl+Shift+F | 현재 문단 글자 크기 (빈줄 자간 꼬임 회피용 작은 크기) |
 | Ctrl+Shift+E | 현재 문단 장평(글자 가로 비율)을 누를 때마다 5%씩 좁힘 (최소 50%, 설정 가능) |
 | Ctrl+Shift+Z | 자간 0 + 장평 100% 초기화 |
-| Ctrl+Shift+C | 상용구 확장 — 캐럿 앞 준말을 본말로 치환 (탭 ④ 상용구에서 관리) |
+| Ctrl+Shift+I | 상용구 확장 — 캐럿 앞 준말을 본말로 치환 (탭 ④ 상용구에서 관리) |
 | Ctrl+Shift+X | **선택 영역 → 마크다운 변환** (한/글 selection 의 plain text 를 md 로 해석해 그 자리에 변환 출력) |
 
 각 hotkey 의 letter 는 탭 ① UI 의 Entry 칸에서 사용자가 임의 변경 가능
@@ -148,7 +148,7 @@ src/
 │   │   ├── IndentAlign.cs         들여쓰기 정렬 (bullet/annotation 라인)
 │   │   ├── Kerning.cs             자간조정 (어절 잘림 방지)
 │   │   ├── Squeeze.cs             어절 끌어올림 (한 줄 압축)
-│   │   └── GlossaryExpand.cs      캐럿 앞 준말→본말 치환 (Ctrl+Shift+C)
+│   │   └── GlossaryExpand.cs      캐럿 앞 준말→본말 치환 (Ctrl+Shift+I)
 │   ├── Templates/
 │   │   ├── ReportSpec.cs          양식 record (배치 모드 입력)
 │   │   ├── BulletStyle.cs · PageMargins.cs · TableStyle.cs
@@ -168,7 +168,7 @@ src/
 │   └── Tabs/
 │       ├── HowToTab.cs            탭 How to (md 문법 안내)
 │       ├── RealtimeTab.cs         탭 실시간(개별 작업, 룰 + 단축키)
-│       ├── GlossaryTab.cs         탭 상용구(준말→본말 치환 관리, C 단축키)
+│       ├── GlossaryTab.cs         탭 상용구(준말→본말 치환 관리, I 단축키)
 │       ├── TemplatesTab.cs        탭 양식(ForgeTemplates 카탈로그)
 │       ├── MarkdownTab.cs         탭 마크다운 입력(배치 변환)
 │       └── Actions.cs             ActionDef 카탈로그(단축키 ↔ 룰 매핑)

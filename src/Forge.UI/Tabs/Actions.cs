@@ -28,7 +28,8 @@ public static class Actions
         new("margin_capture",   "",  "여백 캡쳐",            rt => rt.RunMarginCapture()),
         new("margin_apply",     "",  "여백 적용",            rt => rt.RunMarginApply()),
         new("char_width_ratio", "E", "현재 문단 장평",       rt => rt.RunCharWidthRatio()),
-        new("glossary_expand",  "C", "상용구 확장",          rt => rt.RunGlossaryExpand()),
+        // I — 기본키가 C 였으나 한/글 Ctrl+Shift+C(가운데 정렬) 와 충돌해 교체 (2026-07-16).
+        new("glossary_expand",  "I", "상용구 확장",          rt => rt.RunGlossaryExpand()),
     };
 
     public static ActionDef ByHkId(int hkId) => All[hkId - 1];

@@ -1126,7 +1126,7 @@ public sealed class RealtimeTab : TabPage
         }
     }
 
-    /// <summary>C — 캐럿 바로 앞 준말을 등록된 상용구 본말로 치환. 항목은 탭 ④ 상용구에서 관리.</summary>
+    /// <summary>I — 캐럿 바로 앞 준말을 등록된 상용구 본말로 치환. 항목은 탭 ④ 상용구에서 관리.</summary>
     public void RunGlossaryExpand()
     {
         if (_state.Hwp is null) return;
