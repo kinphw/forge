@@ -30,9 +30,10 @@ public enum BorderSide { Top, Bottom, Left, Right }
 
 public static class Primitives
 {
-    // 인라인 Bold 토큰 — `__X__` (markdown-spec v1.4).
-    // 비탐욕 매칭 — `__a__b__` 의 경우 `a` 만 bold, `b` 는 plain.
-    private static readonly Regex BoldTokenRegex = new(@"__(.+?)__", RegexOptions.Compiled);
+    // 인라인 Bold 토큰 — `**X**` (canonical, markdown-spec v1.7) + `__X__` (하위호환).
+    // 같은 구분자 짝만 매칭(\1 역참조) — `**a** __b__` 혼용도 각자 bold.
+    // 비탐욕 매칭 — `**강조***`(볼드+참조마커)는 `**강조**`만 잡고 뒤 `*`는 리터럴로 남김.
+    private static readonly Regex BoldTokenRegex = new(@"(\*\*|__)(.+?)\1", RegexOptions.Compiled);
 
     // ────────────────────────────────────────────────────────────────────
     // 진단 로그 훅 — HwpxWriter 등 외부에서 set/clear. 미설정 시 no-op.
@@ -73,28 +74,38 @@ public static class Primitives
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // 텍스트 삽입 — 인라인 `__X__` Bold 토큰 자동 처리
+    // 텍스트 삽입 — 인라인 `**X**`(+`__X__` 하위호환) Bold 토큰 자동 처리
+    //   구분자가 2개 캡처 그룹(delim + 내용)이라 Split 대신 Matches 워크로 처리.
+    //   매치 밖은 plain, 매치 내용(Groups[2])만 bold. 남는 홑 `*`는 plain으로 흘러
+    //   참조마커로 보존된다.
     // ────────────────────────────────────────────────────────────────────
     public static void InsertText(dynamic hwp, string text)
     {
         if (string.IsNullOrEmpty(text)) return;
-        // split 결과: parts[0,2,4,...] = plain, parts[1,3,5,...] = bold
-        var parts = BoldTokenRegex.Split(text);
-        for (int i = 0; i < parts.Length; i++)
+        int pos = 0;
+        foreach (Match m in BoldTokenRegex.Matches(text))
         {
-            var part = parts[i];
-            if (part.Length == 0) continue;
-            if (i % 2 == 0)
-            {
-                ComHelpers.SetParam(hwp, "InsertText", new Dictionary<string, object> { ["Text"] = part });
-            }
-            else
-            {
-                hwp.HAction.Run("CharShapeBold");
-                ComHelpers.SetParam(hwp, "InsertText", new Dictionary<string, object> { ["Text"] = part });
-                hwp.HAction.Run("CharShapeBold");
-            }
+            if (m.Index > pos)
+                InsertPlainRun(hwp, text[pos..m.Index]);
+            InsertBoldRun(hwp, m.Groups[2].Value);
+            pos = m.Index + m.Length;
         }
+        if (pos < text.Length)
+            InsertPlainRun(hwp, text[pos..]);
+    }
+
+    private static void InsertPlainRun(dynamic hwp, string s)
+    {
+        if (s.Length == 0) return;
+        ComHelpers.SetParam(hwp, "InsertText", new Dictionary<string, object> { ["Text"] = s });
+    }
+
+    private static void InsertBoldRun(dynamic hwp, string s)
+    {
+        if (s.Length == 0) return;
+        hwp.HAction.Run("CharShapeBold");
+        ComHelpers.SetParam(hwp, "InsertText", new Dictionary<string, object> { ["Text"] = s });
+        hwp.HAction.Run("CharShapeBold");
     }
 
     // ────────────────────────────────────────────────────────────────────

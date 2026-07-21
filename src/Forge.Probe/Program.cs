@@ -598,6 +598,19 @@ static int DiagnoseTableDump()
             double pt = Convert.ToDouble(height) / 100.0;
             Console.WriteLine($"             font face='{face}' size={pt}pt bold={bold} textColor={DecColor(tcol)}");
             hwp.Run("Cancel");
+
+            // 문단 정렬 (AlignType: 0=양쪽 1=왼쪽 2=오른쪽 3=가운데 4=배분 5=나눔) + 들여쓰기
+            try
+            {
+                hwp.Run("MoveParaBegin");
+                var ps = hwp.HParameterSet.HParaShape;
+                hwp.HAction.GetDefault("ParagraphShape", ps.HSet);
+                object al = ((object)ps).GetType().InvokeMember("AlignType", BindingFlags.GetProperty, null, ps, null) ?? -1;
+                object ind = ((object)ps).GetType().InvokeMember("Indentation", BindingFlags.GetProperty, null, ps, null) ?? 0;
+                string alName = Convert.ToInt32(al) switch { 0=>"양쪽",1=>"왼쪽",2=>"오른쪽",3=>"가운데",4=>"배분",5=>"나눔",_=>"?" };
+                Console.WriteLine($"             para AlignType={al}({alName}) Indent={ind}");
+            }
+            catch (Exception e) { Console.WriteLine($"             para read fail: {e.Message}"); }
         }
         catch (Exception e) { Console.WriteLine($"             font read fail: {e.Message}"); }
 

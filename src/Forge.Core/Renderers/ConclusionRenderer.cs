@@ -16,9 +16,9 @@ public sealed class ConclusionRenderer : ElementRenderer
     /// <param name="body">=> 다음에 오는 결론 텍스트. 마커(기본 ➡)는 자동 prepend.</param>
     /// <returns>
     /// 생성된 박스 셀의 list-id (실패 시 -1).
-    /// ★ STAGE 2 가 이 셀만 골라 (들·자·들) 정렬하기 위한 식별자 — 본문 순회는 list 0 만
-    ///   훑어 박스 안 문단이 누락되는데, 그렇다고 모든 셀을 돌면 가운데정렬인 GFM 표까지
-    ///   건드리게 된다. 그래서 "렌더러가 만든 결론박스" 를 명시적으로 기록해 넘긴다.
+    /// ★ 디스패처(DispatchNodes)가 이 셀만 골라 방금 쓴 자리에서 (들·자·들) 정렬하기 위한
+    ///   식별자 — 박스 셀은 별도 list 라 본문 순회에 안 잡히고, 그렇다고 모든 셀을 돌면
+    ///   가운데정렬인 GFM 표까지 건드린다. 그래서 "이 결론박스" 를 명시적으로 넘긴다.
     /// </returns>
     public int Render(string body)
     {

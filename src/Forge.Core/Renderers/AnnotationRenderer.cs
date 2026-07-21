@@ -10,7 +10,7 @@ public sealed class AnnotationRenderer : ElementRenderer
 {
     public AnnotationRenderer(dynamic hwp, ReportSpec spec) : base(hwp, spec) { }
 
-    /// <param name="marker">'*' / '**' / '***' / '※' / '†' — 그대로 출력.</param>
+    /// <param name="marker">'*'(참조, 단일) / '※' / '†' — 그대로 출력. (v1.7: 다중참조 `**`/`***` 폐지)</param>
     /// <param name="body">주석 본문.</param>
     public void Render(string marker, string body)
     {

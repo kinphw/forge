@@ -73,15 +73,26 @@ public class ParserTests
     [Fact]
     public void Annotation_Ref_And_General()
     {
-        var doc = Parser.Parse("** 다중 참조 주석\n※ 일반 주석\n† 단검 주석");
+        // v1.7: 참조는 단일 `*` 만.
+        var doc = Parser.Parse("* 참조 주석\n※ 일반 주석\n† 단검 주석");
         Assert.Equal(3, doc.Nodes.Count);
         Assert.All(doc.Nodes, n => Assert.Equal(NodeType.Annotation, n.Type));
         Assert.Equal("ref", doc.Nodes[0].AnnotationKind);
-        Assert.Equal("**", doc.Nodes[0].Marker);
+        Assert.Equal("*", doc.Nodes[0].Marker);
         Assert.Equal("general", doc.Nodes[1].AnnotationKind);
         Assert.Equal("※", doc.Nodes[1].Marker);
         Assert.Equal("general", doc.Nodes[2].AnnotationKind);
         Assert.Equal("†", doc.Nodes[2].Marker);
+    }
+
+    [Fact]
+    public void Annotation_MultiRef_NormalizedToSingle()
+    {
+        // v1.7 다중참조 폐지: 구식 `**`/`***` 입력도 하위호환 수용하되 마커를 단일 `*` 로 정규화.
+        var doc = Parser.Parse("** 구식 2차 참조\n*** 구식 3차 참조");
+        Assert.Equal(2, doc.Nodes.Count);
+        Assert.All(doc.Nodes, n => Assert.Equal("ref", n.AnnotationKind));
+        Assert.All(doc.Nodes, n => Assert.Equal("*", n.Marker));
     }
 
     [Fact]

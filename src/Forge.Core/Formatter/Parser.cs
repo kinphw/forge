@@ -6,8 +6,8 @@
 //   - YAML front-matter (보고서명·작성부서·작성일)
 //   - 6단계 본문 층위 (1./가./□/○/-/·)
 //   - 요약단어 ((요약))
-//   - 주석 (* 참조 / ※ 일반)
-//   - 강조 (__X__)  ← 인라인. 파서는 raw 문자열로 보존, 렌더러가 처리.
+//   - 주석 (* 참조 / ※ 일반)  ← 참조는 단일 `*` 만 (다중참조 `**`/`***` 폐지, v1.7)
+//   - 강조 (**X**, `__X__` 하위호환)  ← 인라인. 파서는 raw 문자열로 보존, 렌더러가 처리.
 //   - 결론 화살표 (=>)
 //   - Callout 박스 ([참고], [붙임]/[붙임 N])
 //   - GFM 부분집합 표
@@ -47,6 +47,9 @@ public static class Parser
         new(@"^\(([^)]+)\)\s*(.+)$", RegexOptions.Compiled);
     private static readonly Regex ConclusionRegex =
         new(@"^=>\s*(.+)$", RegexOptions.Compiled);
+    // 참조 주석 각주 줄 — 라인 시작 `*` + 공백. `^\*+` 는 구식 다중참조(`**`/`***`)
+    // 입력도 받아들이되, 마커는 항상 단일 `*` 로 정규화한다 (v1.7 다중참조 폐지).
+    // 공백 가드 덕에 `**강조**`(별표 뒤 비공백) 같은 줄머리 볼드와는 충돌하지 않음.
     private static readonly Regex AnnotationRefRegex =
         new(@"^(\*+)\s+(.+)$", RegexOptions.Compiled);
     // ※(당구장) 또는 †(십자가)
@@ -249,12 +252,13 @@ public static class Parser
             };
 
         // 참조 주석 *  (단, "- " 와 충돌 안 함 — 위 분기에서 처리됨)
+        //   다중참조 폐지(v1.7): 구식 `**`/`***` 입력도 단일 `*` 로 정규화 출력.
         m = AnnotationRefRegex.Match(line);
         if (m.Success && !line.StartsWith("- "))
             return new Node
             {
                 Type = NodeType.Annotation,
-                Marker = m.Groups[1].Value,
+                Marker = "*",
                 Text = m.Groups[2].Value,
                 AnnotationKind = "ref",
             };
