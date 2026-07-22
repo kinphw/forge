@@ -21,6 +21,8 @@ public sealed class MarkdownTab : TabPage
     private Button _cancelButton = null!;
     private Button _saveAsButton = null!;
     private CheckBox _applyAutoFormat = null!;
+    private CheckBox _insertAtCursor = null!;
+    private readonly ToolTip _tooltip = new();
     private volatile bool _cancelRequested;
     private Label _statusLine = null!;
 
@@ -230,6 +232,20 @@ B사:  8,567 건 (2024.3~9 누적)
             ForeColor = ForgeTheme.TextPrimary,
         };
 
+        // 삽입 위치 — 체크 시 새 문서 대신 현재 문서의 현재 캐럿 위치에 삽입 (Cursor 모드).
+        //   기본 해제(= 새 문서). 정렬은 노드별 local 이라 기존 문서를 안 건드림.
+        _insertAtCursor = new CheckBox
+        {
+            Text = "현재 파일 현재 캐럿에 생성",
+            Checked = false,
+            AutoSize = true,
+            Margin = new Padding(12, 6, 0, 0),
+            ForeColor = ForgeTheme.TextPrimary,
+        };
+        _tooltip.SetToolTip(_insertAtCursor,
+            "체크: 새 문서를 만들지 않고, 지금 한/글에서 커서가 있는 위치에 변환 결과를 삽입합니다.\n" +
+            "(페이지 여백·메타데이터 헤더는 건드리지 않음. 저장은 한/글에서 직접.)");
+
         btnPanel.Controls.Add(sampleButton);
         btnPanel.Controls.Add(clearButton);
         btnPanel.Controls.Add(openButton);
@@ -237,6 +253,7 @@ B사:  8,567 건 (2024.3~9 누적)
         btnPanel.Controls.Add(_cancelButton);
         btnPanel.Controls.Add(_saveAsButton);
         btnPanel.Controls.Add(_applyAutoFormat);
+        btnPanel.Controls.Add(_insertAtCursor);
         grid.Controls.Add(btnPanel, 0, 5);
 
         return grid;
@@ -710,14 +727,16 @@ B사:  8,567 건 (2024.3~9 누적)
                 return _cancelRequested;
             };
             bool runQ = _applyAutoFormat.Checked;
-            Log($"  [config] 사후 자동정렬(Q) = {(runQ ? "ON" : "OFF — STAGE 2 skip")}");
+            bool atCursor = _insertAtCursor.Checked;
+            var mode = atCursor ? HwpxWriteMode.Cursor : HwpxWriteMode.New;
+            Log($"  [config] 사후 자동정렬(Q) = {(runQ ? "ON" : "OFF")}, 삽입 = {(atCursor ? "현재 문서 커서 위치" : "새 문서")}");
             HwpxWriter.GenerateHwpxViaCom(
                 _state.Hwp.Hwp,
                 doc,
                 outPath: null,
                 spec: _state.Spec,
                 log: logFn,
-                mode: HwpxWriteMode.New,
+                mode: mode,
                 department: _deptInput.Text,
                 date: string.IsNullOrWhiteSpace(_dateInput.Text) ? null : _dateInput.Text,
                 applyIndentAlign: runQ,
@@ -728,6 +747,12 @@ B사:  8,567 건 (2024.3~9 누적)
             {
                 Log("[변환] ⚠ 사용자 강제 중지로 종료 — 부분 결과는 한/글 문서에 남아 있을 수 있음");
                 SetStatus("⚠ 강제 중지됨", ForgeTheme.Warning);
+            }
+            else if (atCursor)
+            {
+                // Cursor 모드: 현재 문서에 삽입됨 — 저장은 한/글에서 직접 (X 단축키와 동일).
+                Log("[변환] ✔ 완료 — 현재 문서 커서 위치에 삽입됨. 저장은 한/글에서 직접.");
+                SetStatus("✔ 커서 위치 삽입 완료", ForgeTheme.Success);
             }
             else
             {

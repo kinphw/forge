@@ -33,6 +33,7 @@ var staThread = new Thread(() =>
             "diag"    => DiagnoseDispatch(),
             "scan"    => DiagnoseSelectionScan(),
             "tabledump" => DiagnoseTableDump(),
+            "cursortest" => DiagnoseCursorInsert(args),
             "glossary" => DiagnoseGlossaryState(),
             "gloss"    => DiagnoseGlossaryState(),
             "glossx"   => DiagnoseGlossaryExec(),
@@ -685,6 +686,111 @@ static int DiagnoseTableDump()
     try { Forge.Core.Linter.Range.SetCaretPos(hwpObj, origin); } catch { }
     Console.WriteLine("[tabledump] 완료 — 위 셀 텍스트로 박스를 식별해 서식 매핑.");
     return 0;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cursor 모드 삽입 검증 — "커서 위에 삽입해도 아래 기존 내용은 무변경" 자동 판정.
+//   1. FileNew → '아래 기존' 긴 글머리 삽입 (wrap 되지만 정렬 대상 아니어야 함)
+//   2. MoveDocBegin (커서를 기존 내용 위로)
+//   3. Cursor 모드 + Q 정렬로 작은 md 변환 (삽입 구간만 정렬돼야 함)
+//   4. list 0 문단 전체를 순회하며 text + AlignType + Indent 덤프
+//   판정: 삽입된 글머리/결론박스는 Indent<0(정렬됨), '아래 기존' 글머리는 Indent==0(무변경).
+// ─────────────────────────────────────────────────────────────────────────
+static int DiagnoseCursorInsert(string[] args)
+{
+    HwpSession session;
+    try { session = HwpSessionHelpers.AttachOrCreate(visible: true, allowSpawn: false); }
+    catch (NoExistingHwpException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 2; }
+    catch (MultipleHwpInstancesException ex) { Console.Error.WriteLine($"[probe] {ex.Message}"); return 3; }
+    Console.WriteLine($"[cursortest] attach: {session.VersionName} #{session.InstanceIndex}");
+    dynamic hwp = session.Hwp;
+    object hwpObj = hwp;
+
+    hwp.Run("FileNew");
+
+    // 인자로 위치 선택: "end"(기본, 흔한 경우 — 커서 아래 기존 내용 없음) / "mid"(중간 삽입).
+    bool mid = args.Length > 1 && args[1].Equals("mid", StringComparison.OrdinalIgnoreCase);
+
+    // 1) 기존 내용 (정렬 안 된 긴 □글머리). 판정 시 이 마커로 검색해 IndentAlign 이 닿았는지 본다.
+    string exMarker = mid ? "△아래기존" : "△위기존";
+    ComHelpers.InsertText(hwp,
+        $"□ {exMarker} 이 문단은 {(mid ? "커서 아래" : "커서 위")}의 기존 내용으로서 충분히 길어 여러 줄로 wrap " +
+        "되지만 새 내용을 삽입해도 이 문단의 들여쓰기는 0 으로 그대로 유지되어야 정상이며 IndentAlign 이 " +
+        "이 문단을 처리(로그 [line])하면 기존 문서가 오염된 것이다");
+    Console.WriteLine($"[cursortest] 기존 내용 삽입 완료 (모드={(mid ? "mid 중간삽입" : "end 끝삽입")})");
+
+    // 2) 커서 위치: mid = 기존 내용 위(MoveDocBegin), end = 기존 내용 아래 새 줄(MoveDocEnd+BreakPara)
+    if (mid)
+    {
+        hwp.Run("MoveDocBegin");
+        Console.WriteLine("[cursortest] MoveDocBegin — 커서를 기존 내용 위로 (mid)");
+    }
+    else
+    {
+        hwp.Run("MoveDocEnd");
+        hwp.Run("BreakPara");
+        Console.WriteLine("[cursortest] MoveDocEnd+BreakPara — 커서를 기존 내용 아래로 (end)");
+    }
+
+    // 3) Cursor 모드 + Q 로 작은 md 변환
+    string md =
+        "1. 삽입 섹션\n\n" +
+        "□ ★삽입글머리 이 문단은 커서 위치에 새로 삽입되는 내용으로 충분히 길어 wrap 되며 마커 뒤 " +
+        "본문 기준으로 매달림 들여쓰기가 잡혀야(Indent<0) 정렬 성공이다\n\n" +
+        "=> ★삽입결론 결론 박스 본문도 셀 안에서 여러 줄로 넘어갈 만큼 길게 작성하여 정렬이 적용되는지 확인한다";
+    var doc = Forge.Core.Formatter.Parser.Parse(md);
+    Console.WriteLine($"[cursortest] Cursor 모드 변환: {doc.Nodes.Count} 노드");
+    Forge.Core.Formatter.HwpxWriter.LogFn lg = m => Console.WriteLine($"    {m}");
+    Forge.Core.Formatter.HwpxWriter.GenerateHwpxViaCom(
+        hwp, doc, outPath: "", spec: Forge.Core.Templates.ReportSpec.Report1, log: lg,
+        mode: Forge.Core.Formatter.HwpxWriteMode.Cursor,
+        applyIndentAlign: true, applyKerning: true);
+
+    // 4) list 0 문단 전체 순회 — text + AlignType + Indent
+    Console.WriteLine("[cursortest] ── 본문(list 0) 문단 판독 ──");
+    hwp.Run("MoveDocBegin");
+    int guard = 0; var seen = new HashSet<string>();
+    bool belowOk = true, insertedAligned = false;
+    while (guard++ < 500)
+    {
+        var pos = Forge.Core.Linter.Range.GetCaretPos(hwpObj);
+        if (pos.List != 0) break;
+        // 문단 텍스트
+        hwp.Run("MoveParaBegin"); hwp.Run("MoveSelParaEnd");
+        string t = Forge.Core.Renderers.Primitives.GetSelectionText(hwpObj, out _);
+        hwp.Run("Cancel");
+        // 문단 정렬/들여쓰기
+        hwp.Run("MoveParaBegin");
+        int indent = 0; int align = -1;
+        try
+        {
+            var ps = hwp.HParameterSet.HParaShape;
+            hwp.HAction.GetDefault("ParagraphShape", ps.HSet);
+            align  = Convert.ToInt32(((object)ps).GetType().InvokeMember("AlignType", BindingFlags.GetProperty, null, ps, null) ?? -1);
+            indent = Convert.ToInt32(((object)ps).GetType().InvokeMember("Indentation", BindingFlags.GetProperty, null, ps, null) ?? 0);
+        }
+        catch { }
+        string vis = t.Trim(); if (vis.Length > 42) vis = vis[..42] + "…";
+        if (vis.Length > 0)
+            Console.WriteLine($"    para#{pos.Para} align={align} indent={indent}  '{vis}'");
+
+        if (t.Contains(exMarker) && indent != 0) belowOk = false;
+        if (t.Contains("★삽입") && indent < 0) insertedAligned = true;
+
+        // 다음 문단
+        var before = pos;
+        hwp.Run("MoveNextParaBegin");
+        var after = Forge.Core.Linter.Range.GetCaretPos(hwpObj);
+        if (after == before || after.List != 0) break;
+        string key = $"{after.Para}";
+        if (!seen.Add(key)) break;
+    }
+
+    Console.WriteLine($"[cursortest] 판정: 삽입내용 정렬됨={insertedAligned}, '아래 기존' 무변경(indent=0)={belowOk}");
+    Console.WriteLine(insertedAligned && belowOk
+        ? "[cursortest] ✔ PASS — 커서 삽입 정렬 + 기존 내용 보존"
+        : "[cursortest] ✘ FAIL — 위 판독 확인");
+    return (insertedAligned && belowOk) ? 0 : 1;
 }
 
 // HWP COLORREF(0x00BBGGRR) → RGB 디코드. r=low byte.

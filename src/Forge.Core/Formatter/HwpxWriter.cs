@@ -96,15 +96,40 @@ public static class HwpxWriter
         else
         {
             log("[STAGE 1] 활성 문서 커서 위치에 본문 삽입 (페이지·메타데이터 미변경)");
+            // ★ 정렬 오버슛 가드 (사용자 제안 "공백 안전거리", 2026-07-21):
+            //   Cursor 인라인 정렬은 마지막 노드에서 '다음 문단'으로 ≤1문단 오버슛하는데,
+            //   중간 삽입이면 그 다음이 기존 내용이라 오염됨(실측). 커서 뒤에 빈 문단을
+            //   하나 만들어 삽입 내용과 기존 내용 사이 안전거리를 확보 — 오버슛은 이 빈
+            //   문단만 건드림(빈 문단은 linter 도 skip). 끝 삽입이면 그냥 빈 줄 하나.
+            if (applyIndentAlign && applyKerning)
+            {
+                try
+                {
+                    // 빈 문단 2개 생성 후 '위쪽' 빈 문단에서 삽입 시작:
+                    //   [삽입지점(빈)][가드(빈)][기존 내용]. 삽입 내용은 위쪽 빈 문단을
+                    //   소비하며 아래로 자라고, '가드(빈)' 는 삽입 끝과 기존 내용 사이에
+                    //   남아 마지막 노드의 오버슛을 흡수한다.
+                    BreakPara(hwp);                    // [빈][기존], 캐럿은 기존 앞
+                    hwp.HAction.Run("MoveUp");         // 캐럿 → 빈 문단
+                    BreakPara(hwp);                    // [빈][빈][기존], 캐럿은 2번째 빈
+                    hwp.HAction.Run("MoveUp");         // 캐럿 → 1번째 빈 (여기서 삽입 시작)
+                }
+                catch { /* 가드 실패해도 삽입은 진행 (끝 삽입은 가드 불필요) */ }
+            }
         }
 
         // ─── 본문 노드 dispatcher (+ 인라인 정렬) ───
         log($"[STAGE 1] 본문 {doc.Nodes.Count} 노드 dispatcher 시작");
         // ★ 정렬(들·자·들) 을 STAGE 1 안에서 노드별로 즉시 처리 = 단일 하향 패스
         //   (사용자 요청 2026-07-16: 쓰기 후 본문 전체 순회 + 표 셀 순회로 문서를 여러 번
-        //    훑던 것을 "쓰면서 그 자리에서 정렬" 로 통합). new 모드 + 두 정렬 모두 켜졌을
-        //   때만 인라인. 단일 플래그(들만/자만)·cursor 모드는 아래 STAGE 2 블록에서 처리.
-        bool alignInline = mode == HwpxWriteMode.New && applyIndentAlign && applyKerning;
+        //    훑던 것을 "쓰면서 그 자리에서 정렬" 로 통합).
+        //   ★ New 모드만 인라인 정렬. Cursor 모드(현재 캐럿 삽입) 정렬은 시도했으나 —
+        //     IndentAlign 의 문단 처리가 마커/본문 탐색 중 '다음 문단'으로 오버슛하는데,
+        //     New(append)는 다음이 빈 문서끝이라 무해하나 Cursor 는 다음이 '기존 내용'이라
+        //     그 문단까지 정렬해 오염됨(실측 FAIL, 2026-07-21). 문단 경계 격리 없이는
+        //     안전하지 않아 Cursor 는 정렬 없이 삽입만. (정렬 원하면 New 로 만든 뒤 붙여넣기.)
+        //   단일 플래그(들만/자만)는 아래 STAGE 2 블록(New 전용).
+        bool alignInline = applyIndentAlign && applyKerning;   // New·Cursor 둘 다 (Cursor 는 아래 검증 중)
         Linter.LogFn linterLog = msg => log("  " + msg);   // HwpxWriter/Linter LogFn 이름 충돌 bridge
         // forceBodyEnd: New 모드만 true — 매 노드 후 MoveDocEnd 로 nesting 누적 회피.
         // Cursor 모드 (X 단축키, 문서 중간 변환) 는 false — 캐럿이 변환 위치에 머물러야 함.
@@ -241,29 +266,36 @@ public static class HwpxWriter
                 continue;
             }
 
-            // 이 노드가 쓰기 시작하는 본문 위치 (정렬 범위 시작점).
-            Linter.CaretPos? nodeStart = null;
-            if (alignEachNode)
-                try { nodeStart = Linter.Range.GetCaretPos(hwp); } catch { /* 실패 시 정렬 skip */ }
-
             if (lastWasEmit) EmitBlankPara();
 
             try
             {
-                int cellList = DispatchOne(hwp, node, spec);
+                int kind = DispatchOne(hwp, node, spec);
 
-                if (alignEachNode)
+                if (alignEachNode && kind != AlignNone)
                 {
-                    if (nodeStart is { } start)
-                        try { AlignBodyRange(hwp, start, alog, cancelCheck); }
-                        catch (Exception e) { log($"  ⚠ 본문 정렬 중단: {e.Message}"); }
-                    if (cellList >= 0)
+                    // 노드 직후 캐럿 = 이 노드 삽입 끝. 정렬이 캐럿을 옮기면 Cursor 모드에서
+                    // 복원해야 다음 노드가 삽입 뒤에서 이어 쓴다 (New 는 ForceBodyEnd 가 처리).
+                    Linter.CaretPos? nodeEnd = null;
+                    try { nodeEnd = Linter.Range.GetCaretPos(hwp); } catch { }
+
+                    if (kind == AlignCurrentPara)
                     {
-                        // hwp 가 dynamic → 메서드 그룹 직접 전달은 CS1976. 델리게이트 변수 경유.
-                        Linter.ParaActionFn cellAction = CombinedParaAction;
-                        try { Linter.Range.ApplyOverLists(hwp, cellAction, new[] { cellList }, alog, cancelCheck); }
+                        // 방금 쓴 list 0 문단 1개만 (들·자·들). 범위 순회 없음 → drift 오염 없음.
+                        try { CombinedParaAction(hwp, alog); }
+                        catch (Exception e) { log($"  ⚠ 문단 정렬 중단: {e.Message}"); }
+                    }
+                    else if (kind >= 1 && forceBodyEnd)   // kind >= 1: 진짜 박스 셀 (list 0 은 셀 아님)
+                    {
+                        // ★ 박스 셀 정렬은 New 모드만. Cursor 모드에선 셀→list0 캐럿 drift 가
+                        //   기존 내용을 오염시켜(실측 FAIL) 결론박스 셀 정렬은 생략한다.
+                        Linter.ParaActionFn cellAction = CombinedParaAction;   // dynamic 호출용 델리게이트(CS1976)
+                        try { Linter.Range.ApplyOverLists(hwp, cellAction, new[] { kind }, alog, cancelCheck); }
                         catch (Exception e) { log($"  ⚠ 박스 셀 정렬 중단: {e.Message}"); }
                     }
+
+                    if (!forceBodyEnd && nodeEnd is { } end)
+                        try { Linter.Range.SetCaretPos(hwp, end); } catch { }
                 }
 
                 ForceBodyEnd();
@@ -279,11 +311,19 @@ public static class HwpxWriter
         }
     }
 
-    /// <returns>
-    /// 정렬이 필요한 박스 셀의 list-id (없으면 -1). 결론박스(=>)처럼 셀 안 본문이 wrap
-    /// 되는 노드만 값을 돌려주고, 호출부(DispatchNodes)가 그 셀을 방금 쓴 자리에서 즉시
-    /// 정렬한다. 나머지(본문 글머리 등 list 0 문단)는 호출부가 본문 범위 정렬로 처리.
-    /// </returns>
+    // DispatchOne 반환 코드 — 이 노드를 어떻게 정렬할지 호출부(DispatchNodes)에 지시.
+    //   >= 0            : 박스 셀 list-id (결론박스). 그 셀만 정렬.
+    //   AlignCurrentPara: 방금 쓴 list 0 문단 1개만 정렬 (글머리·주석·산문).
+    //   AlignNone       : 정렬 안 함 (섹션/소제목/callout/표/메타 — 박스 or 가운데정렬).
+    //
+    // ★ 범위(nodeStart~docEnd) 순회를 안 쓰는 이유: 박스 노드의 ExitTableAndJustify 는
+    //   Cursor 모드에서 캐럿이 삽입 경계 밖(아래 기존 내용)으로 drift 하는 알려진 flaky
+    //   동작이라, 범위 끝을 캐럿으로 잡으면 기존 문서까지 정렬해 오염됨(실측 FAIL, 2026-07-21).
+    //   각 노드가 자기 문단/셀만 건드리게 해 drift 를 원천 차단.
+    private const int AlignCurrentPara = -1;
+    private const int AlignNone = -2;
+
+    /// <returns>정렬 지시 코드 — 위 AlignCurrentPara/AlignNone 또는 박스 셀 list-id(>=0).</returns>
     private static int DispatchOne(dynamic hwp, Node node, ReportSpec spec)
     {
         switch (node.Type)
@@ -294,13 +334,13 @@ public static class HwpxWriter
                 if (node.Marker is not null && int.TryParse(node.Marker.TrimEnd('.'), out var parsed))
                     num = parsed;
                 new SectionRenderer(hwp, spec).Render(num, node.Text);
-                return -1;
+                return AlignNone;   // 박스 + 단일 라인 제목
             }
             case NodeType.Subsection:
             {
                 var marker = node.Marker?.TrimEnd('.') ?? "";
                 new SubsectionRenderer(hwp, spec).Render(marker, node.Text);
-                return -1;
+                return AlignNone;   // 박스 + 단일 라인
             }
             case NodeType.Bullet:
             {
@@ -308,16 +348,16 @@ public static class HwpxWriter
                 {
                     // 마커 없는 본문 — annotation 폰트로 emit (직전 단락 폰트 잔류 방지).
                     EmitUnmarkeredProse(hwp, spec, node.Text);
-                    return -1;
+                    return AlignCurrentPara;
                 }
                 new BulletRenderer(hwp, spec).Render(level, node.Text, node.Summary);
-                return -1;
+                return AlignCurrentPara;   // list 0 본문 글머리
             }
             case NodeType.Annotation:
             {
                 var marker = node.Marker ?? "*";
                 new AnnotationRenderer(hwp, spec).Render(marker, node.Text);
-                return -1;
+                return AlignCurrentPara;   // list 0 주석
             }
             case NodeType.Conclusion:
                 // 결론박스(=>)는 셀 안 본문이 wrap 되므로 정렬 대상. 셀 list-id 반환.
@@ -337,56 +377,23 @@ public static class HwpxWriter
                     new NoteCalloutRenderer(hwp, spec).Render(lines);
                 else
                     new AttachmentRenderer(hwp, spec).Render(node.CalloutNumber, lines);
-                return -1;
+                return AlignNone;   // 박스 (셀 본문 정렬은 현재 범위 밖 — 기존과 동일)
             }
             case NodeType.Table:
-                // 표는 가운데정렬(TableStyle 정책)이라 정렬 대상 아님 — 셀 반환 안 함.
+                // 표는 가운데정렬(TableStyle 정책)이라 정렬 대상 아님.
                 new TableRenderer(hwp, spec).Render(
                     node.Headers,
                     node.Rows.Cast<IReadOnlyList<string>>().ToList(),
                     node.Aligns.Count > 0 ? node.Aligns : null);
-                return -1;
+                return AlignNone;
             case NodeType.Blank:
-                return -1;  // dispatcher 가 직접 처리 — 도달 불가
+                return AlignNone;  // dispatcher 가 직접 처리 — 도달 불가
         }
 
         // 알 수 없는 타입 — 마커 없는 본문 처리
         if (!string.IsNullOrEmpty(node.Text))
             EmitUnmarkeredProse(hwp, spec, node.Text);
-        return -1;
-    }
-
-    /// <summary>
-    /// 방금 쓴 노드가 남긴 본문(list 0) 문단들(fromPos ~ 현재 문서끝)에 (들·자·들) 적용.
-    /// STAGE 1 인라인 정렬용 — DispatchNodes 가 각 노드 직후 호출한다.
-    ///
-    /// fromPos 는 이 노드가 쓰기 시작한 위치(직전 노드 끝). 대부분 노드는 본문 1 문단이지만,
-    /// 여러 문단이나 앞의 빈 spacer 도 범위에 들 수 있어 endPos 까지 문단 단위로 순회한다.
-    /// 빈/한 줄 문단은 linter 자체가 skip. 캐럿은 호출 후 DispatchNodes 의 ForceBodyEnd 가
-    /// 문서 끝으로 되돌린다.
-    /// </summary>
-    private static void AlignBodyRange(
-        dynamic hwp, Linter.CaretPos fromPos, Linter.LogFn log, Func<bool>? shouldAbort)
-    {
-        hwp.HAction.Run("MoveDocEnd");
-        var endPos = Linter.Range.GetCaretPos(hwp);
-        Linter.Range.SetCaretPos(hwp, fromPos);
-
-        int lastPara = -1, guard = 0;
-        while (guard++ < 10_000)
-        {
-            if (shouldAbort?.Invoke() == true) break;
-            var prev = Linter.Range.GetCaretPos(hwp);
-            if (prev.List != 0) break;             // 본문 이탈 (있어선 안 됨)
-            if (prev.Para > endPos.Para) break;    // 이 노드 범위 초과
-            if (prev.Para == lastPara) break;      // 같은 문단 재처리 방지 (마지막 문단 후)
-
-            CombinedParaAction(hwp, log);
-            lastPara = prev.Para;
-
-            var cur = Linter.Range.GetCaretPos(hwp);
-            if (cur == prev) break;                // 진행 멈춤
-        }
+        return AlignCurrentPara;
     }
 
     /// <summary>
