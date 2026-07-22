@@ -282,7 +282,16 @@ public static class HwpxWriter
                     if (kind == AlignCurrentPara)
                     {
                         // 방금 쓴 list 0 문단 1개만 (들·자·들). 범위 순회 없음 → drift 오염 없음.
-                        try { CombinedParaAction(hwp, alog); }
+                        // ★ AlignCurrentPara 렌더러(Bullet/Annotation/EmitUnmarkeredProse)는 모두
+                        //   마지막에 BreakPara 하므로 캐럿은 '다음 빈 문단'에 있음 — 그대로 정렬하면
+                        //   빈 문단만 skip 되고 정작 내용 문단이 Q 를 못 받는 회귀(0.5.10, 사용자
+                        //   보고). MoveUp 으로 내용 문단에 올라간 뒤 정렬 (MoveParaBegin 은
+                        //   CombinedParaAction 내부에서 수행).
+                        try
+                        {
+                            hwp.HAction.Run("MoveUp");
+                            CombinedParaAction(hwp, alog);
+                        }
                         catch (Exception e) { log($"  ⚠ 문단 정렬 중단: {e.Message}"); }
                     }
                     else if (kind >= 1 && forceBodyEnd)   // kind >= 1: 진짜 박스 셀 (list 0 은 셀 아님)
