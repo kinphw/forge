@@ -66,6 +66,20 @@ public static class GlossaryExpand
             return false;
         }
 
+        // ★ 방향키 주입의 부작용 보정 (사용자 실측 2026-07-23): 준말이 '이미 확정'된 상태
+        //   + 문단 끝(뒤에 다음 문단 존재)이면 주입된 오른쪽 방향키가 조합 확정에 소비되지
+        //   않고 캐럿을 '다음 문단 시작'(Pos 0)으로 넘겨버림 → 앞 글자 읽기가 문단 나눔을
+        //   선택해 ''(매치 없음). 조합 중이면 확정에 소비되고, 문서 맨끝이면 no-op 이라
+        //   그동안 안 드러났던 케이스. 캐럿이 문단 시작이면 한 칸 왼쪽(=이전 문단 끝,
+        //   MoveLeft id 445)으로 복귀 후 매칭한다. 문서 첫 문단이면 MoveLeft no-op → 기존
+        //   "선택 없음 skip" 경로로 무해.
+        if (origin.Pos == 0)
+        {
+            log("  [상용구] 캐럿=문단 시작(Pos 0) — 방향키가 문단을 넘긴 것으로 보고 한 칸 복귀");
+            try { hwp.Run("MoveLeft"); } catch { }
+            origin = Range.GetCaretPos(hwpObj);
+        }
+
         if (TryMatchBefore(hwp, hwpObj, entries, origin, log)) return true;
 
         // 매치 없음 — 캐럿 원위치 복원 (선택 해제 포함)

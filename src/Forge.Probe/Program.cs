@@ -534,7 +534,30 @@ static int RunGlossaryTest()
         Console.WriteLine($"[glosstest] {(ok ? "✔" : "✘")} '{e.Before}' → 문단='{Vis(para)}' {Cps(para)} (기대 '{e.After}', ret={ret})");
         hwp.Run("BreakPara");
     }
-    Console.WriteLine($"[glosstest] 결과: {pass} pass / {fail} fail (총 {entries.Count})");
+
+    // ── 시나리오 2: 캐럿이 '다음 문단 시작'(Pos 0)인 상태 — 확정 글자 + 문단 끝에서
+    //    주입된 오른쪽 방향키가 캐럿을 다음 문단으로 넘긴 실사용 케이스 재현
+    //    (사용자 실측 2026-07-23: 앞 len=1 선택='' → 매치 없음). MoveLeft 복귀 보정 검증.
+    Console.WriteLine("[glosstest] ── 시나리오 2: 캐럿=다음 문단 시작 (방향키 문단 넘김 재현) ──");
+    foreach (var e in entries)
+    {
+        ComHelpers.InsertText(hwp, e.Before);
+        hwp.Run("BreakPara");   // 캐럿 → 다음(빈) 문단 시작 = 방향키가 넘긴 상태와 동일
+        bool ret = Forge.Core.Linter.GlossaryExpand.ExpandAtCaret(hwp, entries, lg);
+
+        // 보정이 맞았다면 이전 문단의 준말이 본말로 치환되고 캐럿은 그 문단에 있음.
+        hwp.Run("MoveParaBegin");
+        hwp.Run("MoveSelParaEnd");
+        string para = Forge.Core.Renderers.Primitives.GetSelectionText(hwpObj, out _);
+        hwp.Run("Cancel");
+
+        bool ok = para == e.After;
+        if (ok) pass++; else fail++;
+        Console.WriteLine($"[glosstest] {(ok ? "✔" : "✘")} (문단넘김) '{e.Before}' → 문단='{Vis(para)}' (기대 '{e.After}', ret={ret})");
+        hwp.Run("MoveDocEnd");
+    }
+
+    Console.WriteLine($"[glosstest] 결과: {pass} pass / {fail} fail (총 {entries.Count * 2})");
     Console.WriteLine("[glosstest] 한/글 문서 끝에 테스트 라인 확인 — Ctrl+Z 로 되돌리기 가능.");
     return fail == 0 ? 0 : 1;
 }
